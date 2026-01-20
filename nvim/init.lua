@@ -4,6 +4,14 @@ vim.api.nvim_set_hl(0, "SignColumn", { bg = "none" })
 
 vim.opt.number = true
 
+-- 1. Leaderキーをスペースに設定
+vim.g.mapleader = " "
+vim.g.maplocalleader = " "
+
+-- 2. スペースキー本来の動作（右に1文字移動）を無効化
+-- これをしないと、Leaderキーを押すたびにカーソルが動いてしまいます
+vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>', { silent = true })
+
 -- 行頭・行末を gh / gl に割り当て
 -- gh: 行頭（最初の非空白）
 -- gl: 行末（最後の非空白）
@@ -28,7 +36,7 @@ end
 vim.opt.rtp:prepend(lazypath)
 
 require("lazy").setup("plugin")
- 
+
 -- グローバルの折りたたみ設定
 vim.opt.foldmethod = "expr"
 vim.opt.foldexpr = "v:lua.vim.treesitter.foldexpr()"
@@ -74,3 +82,4 @@ vim.opt.tabstop = 2
 vim.opt.shiftwidth = 2
 -- キー入力時のタブ幅を4にする
 vim.opt.softtabstop = 2
+

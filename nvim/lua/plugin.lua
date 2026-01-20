@@ -44,7 +44,7 @@ return {
 					-- よく使う操作をキーに割り当て
 					local opts = { buffer = args.buf }
 
-          local fzf = require('fzf-lua')
+					local fzf = require("fzf-lua")
 
 					-- 1. ホバー（型情報・ドキュメント閲覧） -> 'K' (Shift + k)
 					vim.keymap.set("n", "K", vim.lsp.buf.hover, opts)
@@ -65,8 +65,8 @@ return {
 					-- 6. コードアクション（自動修正の提案など） -> <Space> + ca
 					vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, opts)
 
-          -- ファイル内の関数や変数を検索してジャンプ (<Space> + s)
-          vim.keymap.set('n', '<leader>s', fzf.lsp_document_symbols, opts)
+					-- ファイル内の関数や変数を検索してジャンプ (<Space> + s)
+					vim.keymap.set("n", "<leader>s", fzf.lsp_document_symbols, opts)
 				end,
 			})
 
@@ -140,20 +140,29 @@ return {
 
 	-- 6. Fuzzy Finder
 	{
-    "ibhagwan/fzf-lua",
-    dependencies = { "nvim-tree/nvim-web-devicons", { "junegunn/fzf", build = "./install --bin" }, },
-    config = function()
-      require("fzf-lua").setup({
-        -- 必要であればここに詳細設定を書きますが、
-        -- デフォルトでも十分に美しいUIで動作します
-        winopts = {
-          preview = {
-            layout = "vertical", -- プレビューを下に表示（好みで horizontal に変更可）
-          },
-        },
-      })
-    end,
-  },
+		"ibhagwan/fzf-lua",
+		dependencies = { "nvim-tree/nvim-web-devicons", { "junegunn/fzf", build = "./install --bin" } },
+		config = function()
+			require("fzf-lua").setup({
+				-- 必要であればここに詳細設定を書きますが、
+				-- デフォルトでも十分に美しいUIで動作します
+				winopts = {
+					preview = {
+						layout = "vertical", -- プレビューを下に表示（好みで horizontal に変更可）
+					},
+				},
+			})
+		end,
+		keys = {
+			{
+				"<leader>f",
+				function()
+					require("fzf-lua").files()
+				end,
+				desc = "Fzf Files",
+			},
+		},
+	},
 	-- 6. 自動補完 (nvim-cmp)
 	{
 		"hrsh7th/nvim-cmp",
@@ -189,6 +198,95 @@ return {
 					{ name = "path" },
 				},
 			})
+		end,
+	},
+
+	-----------------------------------------------------------
+	-- 1. vim-fugitive: Gitコマンドのラッパー
+	-----------------------------------------------------------
+	{
+		"tpope/vim-fugitive",
+		config = function()
+			-- よく使う操作のキーマッピング例
+			-- <Leader> (スペースキーなど) + gs で Gitステータス画面を開く
+			vim.keymap.set("n", "<Leader>gs", vim.cmd.Git)
+		end,
+	},
+
+	-----------------------------------------------------------
+	-- 2. gitsigns.nvim: エディタ端のサイン表示とハンク操作
+	-----------------------------------------------------------
+	{
+		"lewis6991/gitsigns.nvim",
+		config = function()
+			require("gitsigns").setup({
+				-- ここでキーマッピングを設定します
+				on_attach = function(bufnr)
+					local gs = package.loaded.gitsigns
+
+					local function map(mode, l, r, opts)
+						opts = opts or {}
+						opts.buffer = bufnr
+						vim.keymap.set(mode, l, r, opts)
+					end
+
+					-- --- ナビゲーション（変更箇所へのジャンプ） ---
+					map("n", "]c", function()
+						if vim.wo.diff then
+							return "]c"
+						end
+						vim.schedule(function()
+							gs.next_hunk()
+						end)
+						return "<Ignore>"
+					end, { expr = true })
+
+					map("n", "[c", function()
+						if vim.wo.diff then
+							return "[c"
+						end
+						vim.schedule(function()
+							gs.prev_hunk()
+						end)
+						return "<Ignore>"
+					end, { expr = true })
+
+					-- --- ハンク操作（変更箇所の操作） ---
+					map("n", "<Leader>hs", gs.stage_hunk) -- 変更をステージ (Add)
+					map("n", "<Leader>hr", gs.reset_hunk) -- 変更を元に戻す
+					map("v", "<Leader>hs", function()
+						gs.stage_hunk({ vim.fn.line("."), vim.fn.line("v") })
+					end) -- 選択範囲をステージ
+					map("v", "<Leader>hr", function()
+						gs.reset_hunk({ vim.fn.line("."), vim.fn.line("v") })
+					end) -- 選択範囲をリセット
+					map("n", "<Leader>hS", gs.stage_buffer) -- バッファ全体をステージ
+					map("n", "<Leader>hu", gs.undo_stage_hunk) -- ステージを取り消し
+					map("n", "<Leader>hR", gs.reset_buffer) -- バッファ全体をリセット
+
+					-- --- プレビュー ---
+					map("n", "<Leader>hp", gs.preview_hunk) -- 変更内容を浮動ウィンドウで表示
+
+					-- --- Blame（誰が書いたか表示） ---
+					map("n", "<Leader>hb", function()
+						gs.blame_line({ full = true })
+					end) -- 行のBlameを表示
+					map("n", "<Leader>tb", gs.toggle_current_line_blame) -- 行末にBlame情報を常時表示するスイッチ
+				end,
+			})
+		end,
+	},
+
+	-----------------------------------------------------------
+	-- 3. diffview.nvim: 強力な差分ビューア
+	-----------------------------------------------------------
+	{
+		"sindrets/diffview.nvim",
+		config = function()
+			-- 特に設定しなくても使えますが、キーバインドがあると便利です
+			vim.keymap.set("n", "<Leader>do", ":DiffviewOpen<CR>") -- 差分ビューを開く
+			vim.keymap.set("n", "<Leader>dc", ":DiffviewClose<CR>") -- 差分ビューを閉じる
+			vim.keymap.set("n", "<Leader>dh", ":DiffviewFileHistory %<CR>") -- 現在のファイルの履歴を見る
 		end,
 	},
 }
