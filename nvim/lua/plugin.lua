@@ -17,22 +17,12 @@ return {
 		"nvim-treesitter/nvim-treesitter",
 		branch = "main",
 		lazy = false,
-		build = ":TSUpdate",
+		build = ":TSInstall markdown markdown_inline yaml tsx typescript javascript html css json",
 		config = function()
-			local configs = require("nvim-treesitter")
-			configs.setup({
-				ensure_installed = {
-					"markdown",
-					"markdown_inline",
-					"yaml",
-					"tsx",
-					"typescript",
-					"javascript",
-					"html",
-					"css",
-					"json",
-				},
-				highlight = { enable = true },
+			vim.api.nvim_create_autocmd("FileType", {
+				callback = function()
+					pcall(vim.treesitter.start)
+				end,
 			})
 		end,
 	},
@@ -101,14 +91,17 @@ return {
 	-- 3. JSX/TSXの閉じタグ自動挿入
 	{
 		"windwp/nvim-ts-autotag",
-		event = "InsertEnter",
-		opts = {
-			opts = {
-				enable_close = true, -- <div> と入力すると </div> を自動挿入
-				enable_rename = true, -- 開始タグを編集すると閉じタグも同時に変更
-				enable_close_on_slash = true, -- </ と入力すると自動で閉じタグを補完
-			},
-		},
+		dependencies = { "nvim-treesitter/nvim-treesitter" },
+		event = { "BufReadPre", "BufNewFile" },
+		config = function()
+			require("nvim-ts-autotag").setup({
+				opts = {
+					enable_close = true, -- <div> と入力すると </div> を自動挿入
+					enable_rename = true, -- 開始タグを編集すると閉じタグも同時に変更
+					enable_close_on_slash = true, -- </ と入力すると自動で閉じタグを補完
+				},
+			})
+		end,
 	},
 
 	-- 括弧の自動補完
@@ -134,7 +127,7 @@ return {
 				markdown = { "prettier" },
 				yaml = { "prettier" },
 			},
-			format_on_save = { timeout_ms = 500, lsp_fallback = true },
+			format_on_save = { timeout_ms = 500, lsp_format = "fallback" },
 		},
 	},
 
