@@ -1,4 +1,4 @@
-vim.api.nvim_set_hl(0, "Normal", { bg = "#0f172a" })
+vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
 vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
 vim.api.nvim_set_hl(0, "SignColumn", { bg = "none" })
 
@@ -10,7 +10,7 @@ vim.g.maplocalleader = " "
 
 -- 2. スペースキー本来の動作（右に1文字移動）を無効化
 -- これをしないと、Leaderキーを押すたびにカーソルが動いてしまいます
-vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>', { silent = true })
+vim.keymap.set({ "n", "v" }, "<Space>", "<Nop>", { silent = true })
 
 -- 行頭・行末を gh / gl に割り当て
 -- gh: 行頭（最初の非空白）
@@ -25,13 +25,13 @@ vim.keymap.set("n", "<Esc>", "<cmd>nohlsearch<CR>")
 -- =========================
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not vim.loop.fs_stat(lazypath) then
-  vim.fn.system({
-    "git",
-    "clone",
-    "--filter=blob:none",
-    "https://github.com/folke/lazy.nvim.git",
-    lazypath,
-  })
+	vim.fn.system({
+		"git",
+		"clone",
+		"--filter=blob:none",
+		"https://github.com/folke/lazy.nvim.git",
+		lazypath,
+	})
 end
 vim.opt.rtp:prepend(lazypath)
 
@@ -45,20 +45,20 @@ vim.opt.foldenable = true
 
 -- Markdown専用の設定（2つのautocmdを1つに統合）
 vim.api.nvim_create_autocmd("FileType", {
-  pattern = "markdown",
-  callback = function()
-    -- Folding (最新のLua形式に統一)
-    vim.opt_local.foldmethod = "expr"
-    vim.opt_local.foldexpr = "v:lua.vim.treesitter.foldexpr()"
-    
-    -- Layout & Editor
-    vim.opt_local.wrap = true
-    vim.opt_local.linebreak = true
-    vim.opt_local.conceallevel = 2
-    vim.opt_local.spell = false
-    vim.opt_local.number = true
-    vim.opt_local.relativenumber = false
-  end,
+	pattern = "markdown",
+	callback = function()
+		-- Folding (最新のLua形式に統一)
+		vim.opt_local.foldmethod = "expr"
+		vim.opt_local.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+
+		-- Layout & Editor
+		vim.opt_local.wrap = true
+		vim.opt_local.linebreak = true
+		vim.opt_local.conceallevel = 2
+		vim.opt_local.spell = false
+		vim.opt_local.number = true
+		vim.opt_local.relativenumber = false
+	end,
 })
 
 -- Treesitter 用のハイライトグループ (重要)
@@ -82,4 +82,3 @@ vim.opt.tabstop = 2
 vim.opt.shiftwidth = 2
 -- キー入力時のタブ幅を4にする
 vim.opt.softtabstop = 2
-

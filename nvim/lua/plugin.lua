@@ -1,5 +1,19 @@
 return {
 	{
+		"scottmckendry/cyberdream.nvim",
+		lazy = false,
+		priority = 1000,
+		config = function()
+			require("cyberdream").setup({
+				transparent = true, -- ★背景透過を有効化
+				italic_comments = true,
+				hide_fillchars = true,
+				borderless_telescope = true, -- TelescopeなどのUIも枠なしでスッキリ
+			})
+			vim.cmd("colorscheme cyberdream")
+		end,
+	},
+	{
 		"nvim-treesitter/nvim-treesitter",
 		branch = "main",
 		lazy = false,
@@ -87,7 +101,14 @@ return {
 	-- 3. JSX/TSXの閉じタグ自動挿入
 	{
 		"windwp/nvim-ts-autotag",
-		opts = {},
+		event = "InsertEnter",
+		opts = {
+			opts = {
+				enable_close = true, -- <div> と入力すると </div> を自動挿入
+				enable_rename = true, -- 開始タグを編集すると閉じタグも同時に変更
+				enable_close_on_slash = true, -- </ と入力すると自動で閉じタグを補完
+			},
+		},
 	},
 
 	-- 括弧の自動補完
@@ -97,17 +118,35 @@ return {
 		opts = {},
 	},
 
-	-- 4. 保存時の Prettier 自動整形
+	-- 4. 保存時の自動整形
 	{
 		"stevearc/conform.nvim",
 		opts = {
 			formatters_by_ft = {
+				lua = { "stylua" },
 				javascript = { "prettier" },
 				typescript = { "prettier" },
 				javascriptreact = { "prettier" },
 				typescriptreact = { "prettier" },
+				json = { "prettier" },
+				html = { "prettier" },
+				css = { "prettier" },
+				markdown = { "prettier" },
+				yaml = { "prettier" },
 			},
 			format_on_save = { timeout_ms = 500, lsp_fallback = true },
+		},
+	},
+
+	-- フォーマッターの自動インストール
+	{
+		"WhoIsSethDaniel/mason-tool-installer.nvim",
+		dependencies = { "williamboman/mason.nvim" },
+		opts = {
+			ensure_installed = {
+				"prettier",
+				"stylua",
+			},
 		},
 	},
 
@@ -297,4 +336,3 @@ return {
 		end,
 	},
 }
-
