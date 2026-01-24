@@ -90,6 +90,13 @@ return {
 		opts = {},
 	},
 
+	-- 括弧の自動補完
+	{
+		"windwp/nvim-autopairs",
+		event = "InsertEnter",
+		opts = {},
+	},
+
 	-- 4. 保存時の Prettier 自動整形
 	{
 		"stevearc/conform.nvim",
