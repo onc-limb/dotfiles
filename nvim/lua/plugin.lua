@@ -40,7 +40,6 @@ return {
 			require("mason-lspconfig").setup({
 				ensure_installed = { "vtsls", "tailwindcss", "eslint" },
 			})
-			local lspconfig = require("lspconfig")
 			local capabilities = require("cmp_nvim_lsp").default_capabilities()
 
 			vim.api.nvim_create_autocmd("LspAttach", {
@@ -74,15 +73,41 @@ return {
 				end,
 			})
 
-			lspconfig.vtsls.setup({ capabilities = capabilities })
-			lspconfig.tailwindcss.setup({ capabilities = capabilities })
-			lspconfig.eslint.setup({
+			-- vim.lsp.config を使用 (Neovim 0.11+)
+			vim.lsp.config.vtsls = {
+				cmd = { "vtsls", "--stdio" },
+				filetypes = { "javascript", "javascriptreact", "javascript.jsx", "typescript", "typescriptreact", "typescript.tsx" },
+				root_markers = { "package.json", "tsconfig.json", "jsconfig.json", ".git" },
 				capabilities = capabilities,
-				on_attach = function(client, bufnr)
-					vim.api.nvim_create_autocmd("BufWritePre", {
-						buffer = bufnr,
-						command = "EslintFixAll",
-					})
+			}
+			vim.lsp.enable("vtsls")
+
+			vim.lsp.config.tailwindcss = {
+				cmd = { "tailwindcss-language-server", "--stdio" },
+				filetypes = { "html", "css", "scss", "javascript", "javascriptreact", "typescript", "typescriptreact" },
+				root_markers = { "tailwind.config.js", "tailwind.config.ts" },
+				capabilities = capabilities,
+			}
+			vim.lsp.enable("tailwindcss")
+
+			vim.lsp.config.eslint = {
+				cmd = { "vscode-eslint-language-server", "--stdio" },
+				filetypes = { "javascript", "javascriptreact", "typescript", "typescriptreact" },
+				root_markers = { ".eslintrc", ".eslintrc.js", ".eslintrc.json", "package.json" },
+				capabilities = capabilities,
+			}
+			vim.lsp.enable("eslint")
+
+			-- ESLint の自動修正を保存時に実行
+			vim.api.nvim_create_autocmd("LspAttach", {
+				callback = function(args)
+					local client = vim.lsp.get_client_by_id(args.data.client_id)
+					if client and client.name == "eslint" then
+						vim.api.nvim_create_autocmd("BufWritePre", {
+							buffer = args.buf,
+							command = "EslintFixAll",
+						})
+					end
 				end,
 			})
 		end,
