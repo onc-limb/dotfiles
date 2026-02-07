@@ -63,6 +63,14 @@ main() {
     create_link "$DOTFILES_DIR/wezterm" "$HOME/.config/wezterm"
     create_link "$DOTFILES_DIR/starship.toml" "$HOME/.config/starship.toml"
 
+    # Claude Code configuration (selective symlinks to ~/.claude/)
+    create_link "$DOTFILES_DIR/claude/home/settings.json" "$HOME/.claude/settings.json"
+    create_link "$DOTFILES_DIR/claude/home/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+
+    echo ""
+    info "Claude templates available at: $DOTFILES_DIR/claude/templates/"
+    info "  Obsidian: cp -r $DOTFILES_DIR/claude/templates/obsidian/{.claude,CLAUDE.md} <vault-path>/"
+
     echo ""
     echo "========================================"
     echo "  Installation Complete!"
