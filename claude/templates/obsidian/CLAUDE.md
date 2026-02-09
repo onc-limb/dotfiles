@@ -8,8 +8,6 @@ vault/
 │   └── yyyy-mm-dd.md
 ├── daily-report/             # 日報（生成）
 │   └── yyyy-mm-dd.md
-├── weekly-report/            # 週報（生成）
-│   └── yyyy-ww.md            # ww = 月内の週番号（1〜5）
 ├── monthly-report/           # 月次報告書（生成）
 │   └── yyyy-mm.md
 ├── work/                     # プロジェクト・タスク別ノート（生成）
@@ -27,7 +25,6 @@ vault/
 |---|---|
 | `daily/` | `2026-02-09.md` |
 | `daily-report/` | `2026-02-09.md` |
-| `weekly-report/` | `2026-02-1.md`（2026年2月 第1週） |
 | `monthly-report/` | `2026-02.md` |
 
 ## デイリーノート
@@ -103,8 +100,7 @@ vault/
 | レポート | ソース | 出力先 |
 |---|---|---|
 | 日報 | `daily/yyyy-mm-dd.md` の `## work` セクション | `daily-report/yyyy-mm-dd.md` |
-| 週報 | 該当週の日報（`daily-report/`）を集約 | `weekly-report/yyyy-mm-w.md` |
-| 月次報告書 | 該当月の日報・週報を集約 | `monthly-report/yyyy-mm.md` |
+| 月次報告書 | 該当月の日報を集約 | `monthly-report/yyyy-mm.md` |
 
 レポートの詳細なフォーマットは各スキル定義を参照。
 
@@ -113,7 +109,6 @@ vault/
 | スキル名 | 説明 | 使い方例 |
 |---|---|---|
 | `/daily-report` | デイリーノートから日報を作成 | `/daily-report 2026-02-09` |
-| `/weekly-summary` | 週次のデイリーノートを集約して週報を作成 | `/weekly-summary 2026-02-03` |
 | `/monthly-report` | 月次作業報告書を作成（note-reader エージェント使用） | `/monthly-report 2026-02` |
 | `/sort-notes` | デイリーノートの内容を分類別ファイルに振り分け | `/sort-notes 2026-02-09` |
 | `/refine-daily` | デイリーノートの不足情報を対話形式で補完 | `/refine-daily 2026-02-09` |

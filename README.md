@@ -66,8 +66,7 @@ claude/
             │   ├── daily-report/
             │   ├── monthly-report/
             │   ├── refine-daily/
-            │   ├── sort-notes/
-            │   └── weekly-summary/
+            │   └── sort-notes/
             └── agents/
                 └── note-reader/
 ```
@@ -80,7 +79,6 @@ claude/
 | `/monthly-report [YYYY-MM]` | 月次作業報告書を作成 |
 | `/refine-daily [日付]` | デイリーノートの不足情報を対話形式で補完 |
 | `/sort-notes [日付/期間]` | ノート内容を分類別ファイルに振り分け |
-| `/weekly-summary [日付]` | 週次サマリーを作成 |
 
 ### Agents 一覧
 
