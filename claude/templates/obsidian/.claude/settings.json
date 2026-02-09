@@ -1,5 +1,13 @@
 {
   "permissions": {
-    "allow": []
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "Bash(ls:*)",
+      "Bash(date:*)"
+    ]
   }
 }
