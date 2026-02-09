@@ -9,17 +9,26 @@ vault/
 ├── daily-report/             # 日報（生成）
 │   └── yyyy-mm-dd.md
 ├── weekly-report/            # 週報（生成）
-│   └── yyyy-mm-number.md
+│   └── yyyy-ww.md            # ww = 月内の週番号（1〜5）
 ├── monthly-report/           # 月次報告書（生成）
 │   └── yyyy-mm.md
 ├── work/                     # プロジェクト・タスク別ノート（生成）
 │   └── {プロジェクト名}.md
 ├── tech/                     # 技術別ノート（生成）
 │   └── {技術名}.md
-├── life/                     # プライベート作業メモ（生成）
+├── private/                  # プライベート作業メモ（生成）
 │   └── {トピック名}.md
 └── .obsidian/                # Obsidian設定（変更禁止）
 ```
+
+### 命名規則の例
+
+| ディレクトリ | ファイル名例 |
+|---|---|
+| `daily/` | `2026-02-09.md` |
+| `daily-report/` | `2026-02-09.md` |
+| `weekly-report/` | `2026-02-1.md`（2026年2月 第1週） |
+| `monthly-report/` | `2026-02.md` |
 
 ## デイリーノート
 
@@ -60,8 +69,8 @@ vault/
 |---|---|---|
 | `## work` 配下の `### #ref/xxx` | `work/xxx.md` | プロジェクト・タスク単位 |
 | `## tech` 配下の `### #ref/xxx` | `tech/xxx.md` | 技術トピック単位 |
-| `## private` 配下の `### #ref/xxx` | `life/xxx.md` | プライベートトピック単位 |
-| `## memo` | 振り分けなし | デイリーノート内に留まる |
+| `## private` 配下の `### #ref/xxx` | `private/xxx.md` | プライベートトピック単位 |
+| `## memo` | 振り分けなし | デイリーノート内に留まる。レポートにも含めない |
 
 ### 分類タグ（`### #ref/xxx`）
 
@@ -76,13 +85,38 @@ vault/
 - `⏸ 休憩終了 HH:MM` — 休憩終了
 - `⏱ 終了 HH:MM` — 作業終了
 
+## 振り分けファイルのフォーマット
+
+`work/`, `tech/`, `private/` 配下のファイルには日付ヘッダー付きで追記する:
+
+```markdown
+## 2026-02-09
+
+- 該当する内容をここに記載
+- 複数項目がある場合は箇条書き
+```
+
 ## レポート生成
+
+各レポートはソースを段階的に集約して生成する。
 
 | レポート | ソース | 出力先 |
 |---|---|---|
 | 日報 | `daily/yyyy-mm-dd.md` の `## work` セクション | `daily-report/yyyy-mm-dd.md` |
-| 週報 | 該当週の日報を集約 | `weekly-report/yyyy-mm-number.md` |
+| 週報 | 該当週の日報（`daily-report/`）を集約 | `weekly-report/yyyy-mm-w.md` |
 | 月次報告書 | 該当月の日報・週報を集約 | `monthly-report/yyyy-mm.md` |
+
+レポートの詳細なフォーマットは各スキル定義を参照。
+
+## スキル一覧
+
+| スキル名 | 説明 | 使い方例 |
+|---|---|---|
+| `/daily-report` | デイリーノートから日報を作成 | `/daily-report 2026-02-09` |
+| `/weekly-summary` | 週次のデイリーノートを集約して週報を作成 | `/weekly-summary 2026-02-03` |
+| `/monthly-report` | 月次作業報告書を作成（note-reader エージェント使用） | `/monthly-report 2026-02` |
+| `/sort-notes` | デイリーノートの内容を分類別ファイルに振り分け | `/sort-notes 2026-02-09` |
+| `/refine-daily` | デイリーノートの不足情報を対話形式で補完 | `/refine-daily 2026-02-09` |
 
 ## ルール
 
