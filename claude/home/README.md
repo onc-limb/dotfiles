@@ -8,6 +8,23 @@
 |---------|---------|------|
 | `settings.json` | `~/.claude/settings.json` | 権限・言語などの設定 |
 | `CLAUDE.md` | `~/.claude/CLAUDE.md` | グローバル指示 |
+| `skills/` | `~/.claude/skills/` | ホームレベルのスキル |
+
+## ホームレベルスキル
+
+`claude/home/skills/` 配下のスキルは `~/.claude/skills/` にシンボリックリンクされ、どのプロジェクトからでも利用可能。
+
+### install-template
+
+テンプレート設定をプロジェクトディレクトリにコピーする。
+
+```
+/install-template                              # 利用可能なテンプレート一覧
+/install-template obsidian                     # 現在のディレクトリにインストール
+/install-template obsidian ~/Documents/vault   # 指定パスにインストール
+```
+
+テンプレートの追加: `claude/templates/<template-name>/` に `.claude/` と `CLAUDE.md` を配置すれば自動認識される。
 
 ## settings.json の設定方針
 

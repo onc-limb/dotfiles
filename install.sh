@@ -67,9 +67,19 @@ main() {
     create_link "$DOTFILES_DIR/claude/home/settings.json" "$HOME/.claude/settings.json"
     create_link "$DOTFILES_DIR/claude/home/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 
+    # Claude Code home-level skills
+    if [ -d "$DOTFILES_DIR/claude/home/skills" ]; then
+        for skill_dir in "$DOTFILES_DIR/claude/home/skills"/*/; do
+            if [ -d "$skill_dir" ]; then
+                skill_name="$(basename "$skill_dir")"
+                create_link "$skill_dir" "$HOME/.claude/skills/$skill_name"
+            fi
+        done
+    fi
+
     echo ""
     info "Claude templates available at: $DOTFILES_DIR/claude/templates/"
-    info "  Obsidian: cp -r $DOTFILES_DIR/claude/templates/obsidian/{.claude,CLAUDE.md} <vault-path>/"
+    info "  Use /install-template skill to install templates to your projects"
 
     echo ""
     echo "========================================"
