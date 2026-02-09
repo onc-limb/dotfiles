@@ -13,7 +13,8 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git branch*)",
-      "Bash(git log*)"
+      "Bash(git log*)",
+      "Bash(bash .claude/skills/sort-notes/sort-notes.sh *)"
     ]
   }
 }
