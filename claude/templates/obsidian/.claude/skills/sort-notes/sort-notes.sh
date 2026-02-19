@@ -104,6 +104,14 @@ is_empty_content() {
     [ -z "$trimmed" ]
 }
 
+section_to_dir() {
+    local section="$1"
+    case "$section" in
+        book) echo "books" ;;
+        *)    echo "$section" ;;
+    esac
+}
+
 flush_entry() {
     local section="$1"
     local ref="$2"
@@ -114,13 +122,15 @@ flush_entry() {
         return
     fi
 
+    local dir
+    dir=$(section_to_dir "$section")
+    local target="${dir}/${ref}.md"
+
     if is_empty_content "$content"; then
-        skip "${section}/${ref}.md: empty content"
+        skip "${target}: empty content"
         COUNT_SKIP=$((COUNT_SKIP + 1))
         return
     fi
-
-    local target="${section}/${ref}.md"
     local trimmed
     trimmed=$(trim_blank_lines "$content")
 
@@ -154,7 +164,7 @@ parse_daily_note() {
 
     while IFS= read -r line || [ -n "$line" ]; do
         # Match ## work, ## tech, ## private (with optional trailing whitespace)
-        if [[ "$line" =~ ^##\ (work|tech|private)[[:space:]]*$ ]]; then
+        if [[ "$line" =~ ^##\ (work|tech|private|book)[[:space:]]*$ ]]; then
             flush_entry "$current_section" "$current_ref" "$date" "$content_lines"
             current_section="${BASH_REMATCH[1]}"
             current_ref=""

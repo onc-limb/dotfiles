@@ -9,9 +9,11 @@ Obsidian vault 用の Claude Code スキルとエージェント。
 | コマンド | 説明 |
 |---------|------|
 | `/daily-report [日付]` | デイリーノートから日報を作成 |
+| `/daily-narrative [日付]` | デイリーノートから振り返りナラティブを生成 |
 | `/monthly-report [YYYY-MM]` | 月次作業報告書を作成 |
 | `/refine-daily [日付]` | デイリーノートの不足情報を対話形式で補完 |
 | `/sort-notes [日付/期間]` | ノート内容を分類別ファイルに振り分け |
+| `/daily-workflow [日付]` | 補完・振り分け・日報・ナラティブを一括実行 |
 
 ## Agents 一覧
 

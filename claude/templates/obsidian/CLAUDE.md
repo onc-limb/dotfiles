@@ -8,6 +8,8 @@ vault/
 │   └── yyyy-mm-dd.md
 ├── daily-report/             # 日報（生成）
 │   └── yyyy-mm-dd.md
+├── daily-narrative/          # 振り返りナラティブ（生成）
+│   └── yyyy-mm-dd.md
 ├── monthly-report/           # 月次報告書（生成）
 │   └── yyyy-mm.md
 ├── work/                     # プロジェクト・タスク別ノート（生成）
@@ -16,6 +18,8 @@ vault/
 │   └── {技術名}.md
 ├── private/                  # プライベート作業メモ（生成）
 │   └── {トピック名}.md
+├── books/                    # 読書ノート（生成）
+│   └── {書籍名}.md
 └── .obsidian/                # Obsidian設定（変更禁止）
 ```
 
@@ -25,6 +29,7 @@ vault/
 |---|---|
 | `daily/` | `2026-02-09.md` |
 | `daily-report/` | `2026-02-09.md` |
+| `daily-narrative/` | `2026-02-09.md` |
 | `monthly-report/` | `2026-02.md` |
 
 ## デイリーノート
@@ -55,6 +60,11 @@ vault/
 ### #ref/トピック名
 - 内容
 
+## book
+
+### #ref/書籍名
+- 読んだ内容・感想・学び
+
 ## memo
 
 - 分類に属さない一般的なメモ
@@ -67,6 +77,7 @@ vault/
 | `## work` 配下の `### #ref/xxx` | `work/xxx.md` | プロジェクト・タスク単位 |
 | `## tech` 配下の `### #ref/xxx` | `tech/xxx.md` | 技術トピック単位 |
 | `## private` 配下の `### #ref/xxx` | `private/xxx.md` | プライベートトピック単位 |
+| `## book` 配下の `### #ref/xxx` | `books/xxx.md` | 読書ノート単位 |
 | `## memo` | 振り分けなし | デイリーノート内に留まる。レポートにも含めない |
 
 ### 分類タグ（`### #ref/xxx`）
@@ -84,7 +95,7 @@ vault/
 
 ## 振り分けファイルのフォーマット
 
-`work/`, `tech/`, `private/` 配下のファイルには日付ヘッダー付きで追記する:
+`work/`, `tech/`, `private/`, `books/` 配下のファイルには日付ヘッダー付きで追記する:
 
 ```markdown
 ## 2026-02-09
@@ -109,9 +120,11 @@ vault/
 | スキル名 | 説明 | 使い方例 |
 |---|---|---|
 | `/daily-report` | デイリーノートから日報を作成 | `/daily-report 2026-02-09` |
+| `/daily-narrative` | デイリーノートから振り返りナラティブを生成 | `/daily-narrative 2026-02-09` |
 | `/monthly-report` | 月次作業報告書を作成（note-reader エージェント使用） | `/monthly-report 2026-02` |
 | `/sort-notes` | デイリーノートの内容を分類別ファイルに振り分け | `/sort-notes 2026-02-09` |
 | `/refine-daily` | デイリーノートの不足情報を対話形式で補完 | `/refine-daily 2026-02-09` |
+| `/daily-workflow` | 補完・振り分け・日報・ナラティブを一括実行 | `/daily-workflow 2026-02-09` |
 
 ## ルール
 
