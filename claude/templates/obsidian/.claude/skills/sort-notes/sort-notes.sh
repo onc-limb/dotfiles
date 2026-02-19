@@ -122,6 +122,9 @@ flush_entry() {
         return
     fi
 
+    # Filter out time markers (⏱ and ⏸ lines)
+    content=$(printf '%s\n' "$content" | grep -v '^⏱\|^⏸' || true)
+
     local dir
     dir=$(section_to_dir "$section")
     local target="${dir}/${ref}.md"
@@ -204,6 +207,40 @@ ${line}"
 
     # Flush remaining content at end of file
     flush_entry "$current_section" "$current_ref" "$date" "$content_lines"
+}
+
+merge_entries() {
+    local -a MERGED=()
+    local found
+
+    for entry in "${ENTRIES[@]}"; do
+        local target="${entry%%|*}"
+        local rest="${entry#*|}"
+        local date="${rest%%|*}"
+        local content="${rest#*|}"
+
+        found=0
+        for i in "${!MERGED[@]}"; do
+            local m_target="${MERGED[$i]%%|*}"
+            local m_rest="${MERGED[$i]#*|}"
+            local m_date="${m_rest%%|*}"
+            local m_content="${m_rest#*|}"
+
+            if [[ "$m_target" == "$target" && "$m_date" == "$date" ]]; then
+                MERGED[$i]="${target}|${date}|${m_content}
+${content}"
+                found=1
+                break
+            fi
+        done
+
+        if [[ $found -eq 0 ]]; then
+            MERGED+=("${entry}")
+        fi
+    done
+
+    ENTRIES=("${MERGED[@]}")
+    COUNT_APPEND=${#ENTRIES[@]}
 }
 
 print_dry_run_entries() {
@@ -302,6 +339,9 @@ fi
 for date in "${DATES[@]}"; do
     parse_daily_note "daily/${date}.md" "$date"
 done
+
+# Merge entries with same target and date
+merge_entries
 
 # Execute or preview
 if [ "$MODE" = "--execute" ] && [ ${#ENTRIES[@]} -gt 0 ]; then
