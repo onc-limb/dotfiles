@@ -77,6 +77,16 @@ main() {
         done
     fi
 
+    # Claude Code home-level agents
+    if [ -d "$DOTFILES_DIR/claude/home/agents" ]; then
+        for agent_dir in "$DOTFILES_DIR/claude/home/agents"/*/; do
+            if [ -d "$agent_dir" ]; then
+                agent_name="$(basename "$agent_dir")"
+                create_link "$agent_dir" "$HOME/.claude/agents/$agent_name"
+            fi
+        done
+    fi
+
     echo ""
     info "Claude templates available at: $DOTFILES_DIR/claude/templates/"
     info "  Use /install-template skill to install templates to your projects"

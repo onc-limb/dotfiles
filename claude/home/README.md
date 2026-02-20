@@ -9,6 +9,7 @@
 | `settings.json` | `~/.claude/settings.json` | 権限・言語などの設定 |
 | `CLAUDE.md` | `~/.claude/CLAUDE.md` | グローバル指示 |
 | `skills/` | `~/.claude/skills/` | ホームレベルのスキル |
+| `agents/` | `~/.claude/agents/` | ホームレベルのエージェント |
 
 ## ホームレベルスキル
 
@@ -25,6 +26,38 @@
 ```
 
 テンプレートの追加: `claude/templates/<template-name>/` に `.claude/` と `CLAUDE.md` を配置すれば自動認識される。
+
+### plan-issue
+
+対話的に要件をヒアリングし、コードベース調査を経て GitHub issue を作成する。
+
+```
+/plan-issue                        # 対話的にヒアリング開始
+/plan-issue ログイン機能にMFA対応を追加  # 概要を指定して開始
+```
+
+5 つの Phase で進行:
+1. **要件概要** — リポジトリ確認、変更内容・動機のヒアリング
+2. **コード調査** — `/codebase-reader` でコードベースを自動調査
+3. **仕様深掘り** — 調査結果を踏まえた段階的質問
+4. **issue 下書き** — テンプレートに沿った下書き → レビュー
+5. **issue 作成** — ラベル選択 → `gh issue create` → URL 表示
+
+### codebase-reader
+
+プロジェクトのコードベースを探索し、構造化されたレポートを返す。`plan-issue` から自動的に呼び出されるが、単独でも利用可能。
+
+```
+/codebase-reader ユーザー認証機能の実装箇所を調査
+```
+
+## ホームレベルエージェント
+
+`claude/home/agents/` 配下のエージェントは `~/.claude/agents/` にシンボリックリンクされ、スキルから `agent:` フィールドで参照できる。
+
+### codebase-reader
+
+プロジェクトのコードベースを探索し、構造と関連ファイルを特定して構造化データを返すエージェント。`context: fork` + `agent: codebase-reader` の組み合わせでスキルから呼び出される（`monthly-report` → `note-reader` と同じパターン）。
 
 ## settings.json の設定方針
 
