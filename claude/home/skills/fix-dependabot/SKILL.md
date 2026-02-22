@@ -68,12 +68,19 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 
 #### 3. パッケージごとの修正（グループを順次処理）
 
-**a. ブランチ作成:**
+**a. 既存 PR チェック:**
 - ブランチ名: `fix/dependabot-{package_name}`
+- 同名ブランチの open な PR が既に存在するか確認する:
+  ```bash
+  gh pr list --repo {owner}/{repo} --head {branch_name} --state open --json number,url
+  ```
+- PR が存在する場合、このパッケージを **スキップ** し、結果に「スキップ（既存PR あり: {pr_url}）」と記録して次へ進む
+
+**b. ブランチ作成:**
 - `git switch {default_branch}` でデフォルトブランチに戻る
 - `git switch -c {branch_name}` で作業ブランチ作成
 
-**b. 依存関係の更新（エコシステムに応じて）:**
+**c. 依存関係の更新（エコシステムに応じて）:**
 - **npm**: `npm install {package}@{latest_fixed_version}`
 - **pip**: `requirements.txt` / `pyproject.toml` 等のバージョンを編集し `pip install -r requirements.txt` 等
 - **cargo**: `cargo update -p {package}`
@@ -84,14 +91,14 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 - **nuget**: `dotnet add package {package} --version {latest_fixed_version}`
 - エコシステムが不明な場合: マニフェストファイルを特定して該当パッケージのバージョンを直接編集
 
-**c. コミット・プッシュ:**
+**d. コミット・プッシュ:**
 ```bash
 git add .
 git commit -m "fix: update {package} to {latest_fixed_version} (dependabot alerts #{numbers})"
 git push -u origin {branch_name}
 ```
 
-**d. PR 作成:**
+**e. PR 作成:**
 ```bash
 gh pr create \
   --title "fix: update {package} to {latest_fixed_version}" \
@@ -110,7 +117,7 @@ EOF
   --repo {owner}/{repo}
 ```
 
-**e. エラー時:**
+**f. エラー時:**
 - ブランチを削除する: `git switch {default_branch} && git branch -D {branch_name}`
 - スキップして次のパッケージへ進む
 - 結果に「失敗」と理由を記録する
@@ -129,3 +136,4 @@ EOF
 |-----------|-----------|-----------|---------|--------|
 | owner/repo | lodash | #123, #789 | 成功 | URL |
 | owner/repo | express | #456 | 失敗（理由） | - |
+| owner/repo | axios | #101 | スキップ（既存PR） | 既存PR URL |
