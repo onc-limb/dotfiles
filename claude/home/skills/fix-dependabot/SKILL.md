@@ -71,14 +71,15 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 各パッケージグループを順次処理し、一時ブランチ上で更新・テスト・修正試行を行う。**この Phase では PR を作成しない。** 評価結果を記録して一時ブランチを破棄する。
 
 **a. 既存 PR チェック:**
-- 以下のブランチ名で open な PR が既に存在するか確認する:
+- 以下のブランチ名で **open** な PR が既に存在するか確認する:
   - `fix/dependabot-{package_name}`（個別 PR）
   - `fix/dependabot-security-updates`（まとめ PR）
   ```bash
   gh pr list --repo {owner}/{repo} --head fix/dependabot-{package_name} --state open --json number,url
   gh pr list --repo {owner}/{repo} --head fix/dependabot-security-updates --state open --json number,url
   ```
-- いずれかの PR が存在する場合、このパッケージを **スキップ** し、結果に「スキップ（既存PR あり: {pr_url}）」と記録して次へ進む
+- **open** な PR が存在する場合のみ、このパッケージを **スキップ** し、結果に「スキップ（既存PR あり: {pr_url}）」と記録して次へ進む
+- **closed（マージ済み含む）の PR しかない場合は未対応と判断し、スキップせず処理を続行する**
 
 **b. 一時ブランチ作成:**
 - `git switch {default_branch}` でデフォルトブランチに戻る
@@ -250,14 +251,17 @@ Phase 1 の評価結果に基づき、パッケージを **十分グループ** 
 
 十分グループが 0 件の場合はスキップする。
 
-1. 既存の `fix/dependabot-security-updates` ブランチの open PR を確認する:
+1. 既存の `fix/dependabot-security-updates` ブランチの **open** な PR を確認する:
    ```bash
    gh pr list --repo {owner}/{repo} --head fix/dependabot-security-updates --state open --json number,url
    ```
-   PR が存在する場合は、十分グループ全体をスキップする。
+   **open** な PR が存在する場合は、十分グループ全体をスキップする。closed の PR しかない場合はスキップせず続行する。
 
 2. ブランチ作成:
+   過去の closed PR のブランチがリモートに残っている可能性があるため、先にクリーンアップする:
    ```bash
+   git push origin --delete fix/dependabot-security-updates 2>/dev/null || true
+   git branch -D fix/dependabot-security-updates 2>/dev/null || true
    git switch {default_branch}
    git switch -c fix/dependabot-security-updates
    ```
@@ -340,7 +344,10 @@ Phase 1 の評価結果に基づき、パッケージを **十分グループ** 
 パッケージごとに以下を実行する:
 
 1. ブランチ作成:
+   過去の closed PR のブランチがリモートに残っている可能性があるため、先にクリーンアップする:
    ```bash
+   git push origin --delete fix/dependabot-{package_name} 2>/dev/null || true
+   git branch -D fix/dependabot-{package_name} 2>/dev/null || true
    git switch {default_branch}
    git switch -c fix/dependabot-{package_name}
    ```
