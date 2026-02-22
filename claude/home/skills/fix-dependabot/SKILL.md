@@ -66,21 +66,40 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 - アラートをパッケージ名でグルーピングする
 - 各グループ内で最新の修正バージョン（最も高いバージョン）を採用する
 
-#### 3. パッケージごとの修正（グループを順次処理）
+#### 3. パッケージごとの評価（Phase 1）
+
+各パッケージグループを順次処理し、一時ブランチ上で更新・テスト・修正試行を行う。**この Phase では PR を作成しない。** 評価結果を記録して一時ブランチを破棄する。
 
 **a. 既存 PR チェック:**
-- ブランチ名: `fix/dependabot-{package_name}`
-- 同名ブランチの open な PR が既に存在するか確認する:
+- 以下のブランチ名で open な PR が既に存在するか確認する:
+  - `fix/dependabot-{package_name}`（個別 PR）
+  - `fix/dependabot-security-updates`（まとめ PR）
   ```bash
-  gh pr list --repo {owner}/{repo} --head {branch_name} --state open --json number,url
+  gh pr list --repo {owner}/{repo} --head fix/dependabot-{package_name} --state open --json number,url
+  gh pr list --repo {owner}/{repo} --head fix/dependabot-security-updates --state open --json number,url
   ```
-- PR が存在する場合、このパッケージを **スキップ** し、結果に「スキップ（既存PR あり: {pr_url}）」と記録して次へ進む
+- いずれかの PR が存在する場合、このパッケージを **スキップ** し、結果に「スキップ（既存PR あり: {pr_url}）」と記録して次へ進む
 
-**b. ブランチ作成:**
+**b. 一時ブランチ作成:**
 - `git switch {default_branch}` でデフォルトブランチに戻る
-- `git switch -c {branch_name}` で作業ブランチ作成
+- `git switch -c tmp/dependabot-assess-{package_name}` で一時評価ブランチ作成
 
-**c. 依存関係の更新（エコシステムに応じて）:**
+**b2. 直接依存 / 間接依存の判定:**
+
+エコシステムに応じてマニフェストファイルを確認し、アラート対象パッケージが直接依存か間接依存かを判定する:
+
+- **npm**: `package.json` の `dependencies` / `devDependencies` にパッケージ名が含まれるか
+- **pip**: `requirements.txt` / `pyproject.toml` の `[project.dependencies]` / `setup.py` の `install_requires` に含まれるか
+- **cargo**: `Cargo.toml` の `[dependencies]` / `[dev-dependencies]` に含まれるか
+- **gomod**: `go.mod` の `require` ディレクティブに直接記載されているか（`// indirect` コメントがないか）
+- **bundler**: `Gemfile` に直接記載されているか
+- **composer**: `composer.json` の `require` / `require-dev` に含まれるか
+- **maven**: `pom.xml` の `<dependencies>` に直接記載されているか
+- **nuget**: `*.csproj` の `<PackageReference>` に含まれるか
+
+判定結果を `dependency_type: direct` または `dependency_type: indirect` として記録する。直接依存の場合は c1 に、間接依存の場合は c2 に進む。
+
+**c1. 依存関係の更新 — 直接依存の場合（エコシステムに応じて）:**
 - **npm**: `npm install {package}@{latest_fixed_version}`
 - **pip**: `requirements.txt` / `pyproject.toml` 等のバージョンを編集し `pip install -r requirements.txt` 等
 - **cargo**: `cargo update -p {package}`
@@ -91,9 +110,46 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 - **nuget**: `dotnet add package {package} --version {latest_fixed_version}`
 - エコシステムが不明な場合: マニフェストファイルを特定して該当パッケージのバージョンを直接編集
 
+`update_method: normal` と記録し、d（テスト検出・実行）に進む。
+
+**c2. 依存関係の更新 — 間接依存の場合:**
+
+まず、直接依存ライブラリのバージョン制約内でロックファイル更新により対応可能かを確認する。
+
+**i. ロックファイル更新で対応可能か確認する:**
+- **npm**: `npm update {package}` を実行後、`npm ls {package}` で解決バージョンが修正バージョン以上かチェック
+- **pip**: `pip install --upgrade {direct_parent}` 後に `pip show {package}` でバージョン確認
+- **cargo**: `cargo update -p {package}` 後に `cargo tree -p {package}` でバージョン確認
+- **gomod**: `go get -u {direct_parent}` → `go mod tidy` 後に `go list -m {package}` でバージョン確認
+- **bundler**: `bundle update {package}` 後に `bundle show {package}` でバージョン確認
+- **composer**: `composer update {package}` 後に `composer show {package}` でバージョン確認
+- **maven**: `mvn versions:use-latest-releases -Dincludes={package}` 後にバージョン確認
+- **nuget**: `dotnet restore` 後にバージョン確認
+
+**ii. 対応可能だった場合**（解決バージョンが修正バージョン以上）:
+`update_method: lock_refresh` と記録し、d（テスト検出・実行）に進む。
+
+**iii. 対応不可能だった場合**（直接依存のバージョン制約が修正バージョンを許容しない）:
+アラートの severity を確認する:
+
+- **severity が high または critical の場合:** override で強制的にバージョンを指定する:
+  - **npm**: `package.json` の `overrides` フィールドに `"{package}": "{latest_fixed_version}"` を追加し `npm install`
+  - **yarn**: `package.json` の `resolutions` フィールドに `"{package}": "{latest_fixed_version}"` を追加し `yarn install`
+  - **cargo**: `Cargo.toml` の `[patch.crates-io]` セクションにパッチ指定
+  - **gomod**: `go.mod` に `replace {package} => {package} {latest_fixed_version}` を追加し `go mod tidy`
+  - **bundler**: `Gemfile` の末尾に `gem '{package}', '{latest_fixed_version}'` を追加し `bundle install`
+  - **composer**: `composer.json` の `require` に直接追加し `composer update`
+  - **maven**: `pom.xml` の `<dependencyManagement>` セクションにバージョンを追加
+  - **nuget**: `Directory.Packages.props` がある場合はそこに、なければ `*.csproj` に直接 `<PackageReference>` を追加
+
+  `update_method: override` と記録し、d（テスト検出・実行）に進む。
+
+- **severity が medium または low の場合:** このパッケージを **スキップ** する。
+  結果に「スキップ（間接依存・severity {level}・override 対象外）」と記録し、一時ブランチを破棄して次のパッケージに進む。
+
 **d. テスト検出・実行:**
 
-依存関係の更新後、PR 作成前にテストを実行して互換性を検証する。
+依存関係の更新後にテストを実行して互換性を検証する。
 
 **i. テストフレームワークの検出（エコシステムに応じて）:**
 
@@ -108,7 +164,7 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 - **maven**: `mvn test`
 - **nuget**: `dotnet test`
 
-テストコマンドが検出できない場合は `test_status: no_test_env`（テスト環境未検出）と記録し、f（コミット前検証）に進む。
+テストコマンドが検出できない場合は `test_status: no_test_env`（テスト環境未検出）と記録し、f（結果記録・ブランチ破棄）に進む。
 
 **ii. テストの実行:**
 
@@ -118,7 +174,7 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 - 失敗したテストケースの一覧（テスト出力から抽出）
 - テスト出力の要約（最後の数十行）
 
-テストが全て成功した場合は `test_status: passed` と記録し、iii（関連テストの有無チェック）を実施してから f（コミット前検証）に進む。
+テストが全て成功した場合は `test_status: passed` と記録し、iii（関連テストの有無チェック）を実施してから f（結果記録・ブランチ破棄）に進む。
 テストが失敗した場合は `test_status: failed` と記録し、e（テスト失敗時の修正試行）に進む。
 
 **iii. 関連テストの有無チェック:**
@@ -128,7 +184,7 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 1. テストファイル群の中で、更新パッケージ名を `import`/`require`/`use` しているファイルを検索する
 2. 更新パッケージを使用しているソースファイルを特定し、そのモジュール/関数に対するテストが存在するか確認する
 
-関連テストが見つからない場合、`missing_related_tests: true` と記録する（PR 本文に記載する）。
+関連テストが見つからない場合、`missing_related_tests: true` と記録する。
 
 **e. テスト失敗時の修正試行:**
 
@@ -156,104 +212,207 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 - `test_status: unfixed` と記録する
 - 残っている失敗テストの詳細（テスト名、エラーメッセージ）を記録する
 - 修正を試みた内容と結果を記録する
-- 修正の変更はそのまま残す（部分的にでも改善していれば価値がある）
-- f に進む（PR は作成するが、本文に未修正の失敗テスト情報を記載する）
+- f に進む
 
-**f. コミット前検証・コミット・プッシュ:**
+**f. 結果記録・一時ブランチ破棄:**
 
-コミット前に、テストファイルが誤って変更されていないかを確認する:
+以下の情報を評価結果として記録する:
+- パッケージ名、現在バージョン、修正バージョン
+- エコシステム、更新コマンド
+- `dependency_type`（`direct` / `indirect`）
+- `update_method`（`normal` / `lock_refresh` / `override`）
+- `test_status`（`passed` / `fixed` / `unfixed` / `no_test_env`）
+- `missing_related_tests`（`true` / `false`）
+- 修正試行の内容（`fixed` または `unfixed` の場合）
+- 失敗テストの詳細（`unfixed` の場合）
+- テストコマンド
 
+一時ブランチを破棄してデフォルトブランチに戻る:
 ```bash
-git diff --name-only
+git switch {default_branch}
+git branch -D tmp/dependabot-assess-{package_name}
 ```
 
-変更ファイルの中に以下のパターンに一致するものがあれば `git checkout -- {file}` で変更を取り消す:
-- `test/`, `tests/`, `__tests__/`, `spec/`, `specs/` 配下のファイル
-- `*test*.*`, `*spec*.*`, `*Test.*` 等のテストファイルパターン
-
-確認後にコミット・プッシュする:
-```bash
-git add .
-git commit -m "fix: update {package} to {latest_fixed_version} (dependabot alerts #{numbers})"
-git push -u origin {branch_name}
-```
-
-**g. PR 作成:**
-
-`test_status` と `missing_related_tests` の値に応じて PR 本文の `## Test Verification` セクションを構成する。
-
-```bash
-gh pr create \
-  --title "fix: update {package} to {latest_fixed_version}" \
-  --body "$(cat <<'EOF'
-## Summary
-- Fixes Dependabot alerts: #{number1}, #{number2}, ...
-- Updates {package} from {current_version} to {latest_fixed_version}
-- Severities: {severity1}, {severity2}, ...
-
-## Dependabot Alerts
-- {alert_url_1}
-- {alert_url_2}
-- ...
-
-## Test Verification
-{test_verification_section}
-EOF
-)" \
-  --repo {owner}/{repo}
-```
-
-`{test_verification_section}` は `test_status` に応じて以下のいずれかを記載する:
-
-**`test_status: passed` の場合:**
-```
-- :white_check_mark: All tests passed
-- Test command: `{test_command}`
-```
-
-**`test_status: passed` かつ `missing_related_tests: true` の場合:**
-```
-- :white_check_mark: All existing tests passed
-- Test command: `{test_command}`
-- :information_source: No tests found that directly cover `{package}` usage. Consider adding tests for modules that depend on this package.
-```
-
-**`test_status: fixed` の場合:**
-```
-- :warning: Tests initially failed but were fixed
-- Test command: `{test_command}`
-- Fixes applied:
-  - {description_of_fix_1}
-  - {description_of_fix_2}
-```
-
-**`test_status: unfixed` の場合:**
-```
-- :x: Some tests are still failing after automated fix attempts
-- Test command: `{test_command}`
-- Failing tests:
-  - `{test_name_1}`: {error_summary_1}
-  - `{test_name_2}`: {error_summary_2}
-- Fix attempts:
-  - Round 1: {what_was_tried_1}
-  - Round 2: {what_was_tried_2}
-  - Round 3: {what_was_tried_3}
-- **Manual review required**: The above test failures need human intervention.
-```
-
-**`test_status: no_test_env` の場合:**
-```
-- :information_source: No test environment detected in this repository
-```
-
-**h. エラー時:**
-- ブランチを削除する: `git switch {default_branch} && git branch -D {branch_name}`
+**g. エラー時:**
+- 一時ブランチを破棄する: `git switch {default_branch} && git branch -D tmp/dependabot-assess-{package_name}`
 - スキップして次のパッケージへ進む
 - 結果に「失敗」と理由を記録する
 
-#### 4. 結果を返却
+#### 4. PR 作成（Phase 2）
 
-各パッケージの対応結果（成功/失敗、テスト結果、対象アラート番号、PR URL）をまとめて返す。
+Phase 1 の評価結果に基づき、パッケージを **十分グループ** と **不十分グループ** に分類して PR を作成する。
+
+**分類基準:**
+- **十分グループ**（まとめ PR）: `test_status` が `passed`（`missing_related_tests` が `false`）、`fixed`、`no_test_env` のいずれか
+- **不十分グループ**（個別 PR）: `test_status` が `unfixed`、または `passed` かつ `missing_related_tests: true`
+
+##### 4a. まとめ PR（十分グループ）
+
+十分グループが 0 件の場合はスキップする。
+
+1. 既存の `fix/dependabot-security-updates` ブランチの open PR を確認する:
+   ```bash
+   gh pr list --repo {owner}/{repo} --head fix/dependabot-security-updates --state open --json number,url
+   ```
+   PR が存在する場合は、十分グループ全体をスキップする。
+
+2. ブランチ作成:
+   ```bash
+   git switch {default_branch}
+   git switch -c fix/dependabot-security-updates
+   ```
+
+3. 十分グループの全パッケージの依存関係を一括更新する（Phase 1 と同じ更新コマンドを順次実行）。`fixed` だったパッケージについては、Phase 1 で行ったソースコード修正も再適用する。
+
+4. **最終統合テスト実行**: 全パッケージが同時に更新された状態でテストを実行する（タイムアウト: 5 分）。
+   - テスト成功 → 5 に進む
+   - テスト失敗 → 失敗原因のパッケージを特定し、そのパッケージを不十分グループに移動する。残りのパッケージで 2〜4 を再試行する。再試行は最大 1 回とし、それでも失敗する場合は十分グループ全体の PR 作成を中止し、全パッケージを個別 PR（4b）として処理する。
+
+5. コミット前検証: テストファイルが誤って変更されていないか確認する:
+   ```bash
+   git diff --name-only
+   ```
+   テストファイルパターンに一致するファイルがあれば `git checkout -- {file}` で変更を取り消す。
+
+6. コミット・プッシュ:
+   ```bash
+   git add .
+   git commit -m "fix: update security dependencies ({package1}, {package2}, ...)"
+   git push -u origin fix/dependabot-security-updates
+   ```
+
+7. まとめ PR 作成:
+   ```bash
+   gh pr create \
+     --title "fix: update {n} security dependencies" \
+     --body "$(cat <<'EOF'
+   ## Summary
+   - Fixes Dependabot alerts: #{number1}, #{number2}, ...
+   - Updates {n} packages:
+     - {package1}: {old_version} → {new_version} ({severity}) [direct]
+     - {package2}: {old_version} → {new_version} ({severity}) [indirect: lock refresh]
+     - {package3}: {old_version} → {new_version} ({severity}) [indirect: override]
+     - ...
+
+   ## Dependabot Alerts
+   - {alert_url_1}
+   - {alert_url_2}
+   - ...
+
+   ## Test Verification (per package)
+   ### {package1}
+   {test_verification_for_package1}
+
+   ### {package2}
+   {test_verification_for_package2}
+
+   ### Final Integration Test
+   - :white_check_mark: All tests passed with all packages updated simultaneously
+   - Test command: `{test_command}`
+   EOF
+   )" \
+     --repo {owner}/{repo}
+   ```
+
+   各パッケージの `{test_verification_for_packageN}` は `test_status` に応じて以下を記載する:
+
+   **`test_status: passed` の場合:**
+   ```
+   - :white_check_mark: All tests passed
+   ```
+
+   **`test_status: fixed` の場合:**
+   ```
+   - :warning: Tests initially failed but were fixed
+   - Fixes applied:
+     - {description_of_fix_1}
+   ```
+
+   **`test_status: no_test_env` の場合:**
+   ```
+   - :information_source: No test environment detected
+   ```
+
+##### 4b. 個別 PR（不十分グループ）
+
+不十分グループが 0 件の場合はスキップする。
+
+パッケージごとに以下を実行する:
+
+1. ブランチ作成:
+   ```bash
+   git switch {default_branch}
+   git switch -c fix/dependabot-{package_name}
+   ```
+
+2. 依存関係を更新する（Phase 1 と同じ更新コマンドを実行）。`unfixed` の場合は Phase 1 で行った修正試行の変更も再適用する。
+
+3. コミット前検証: テストファイルが誤って変更されていないか確認する:
+   ```bash
+   git diff --name-only
+   ```
+   テストファイルパターンに一致するファイルがあれば `git checkout -- {file}` で変更を取り消す。
+
+4. コミット・プッシュ:
+   ```bash
+   git add .
+   git commit -m "fix: update {package} to {latest_fixed_version} (dependabot alerts #{numbers})"
+   git push -u origin fix/dependabot-{package_name}
+   ```
+
+5. 個別 PR 作成:
+   ```bash
+   gh pr create \
+     --title "fix: update {package} to {latest_fixed_version}" \
+     --body "$(cat <<'EOF'
+   ## Summary
+   - Fixes Dependabot alerts: #{number1}, #{number2}, ...
+   - Updates {package} from {current_version} to {latest_fixed_version}
+   - Severities: {severity1}, {severity2}, ...
+
+   ## Dependabot Alerts
+   - {alert_url_1}
+   - {alert_url_2}
+   - ...
+
+   ## Test Verification
+   {test_verification_section}
+   EOF
+   )" \
+     --repo {owner}/{repo}
+   ```
+
+   `{test_verification_section}` は `test_status` に応じて以下のいずれかを記載する:
+
+   **`test_status: passed` かつ `missing_related_tests: true` の場合:**
+   ```
+   - :white_check_mark: All existing tests passed
+   - Test command: `{test_command}`
+   - :information_source: No tests found that directly cover `{package}` usage. Consider adding tests for modules that depend on this package.
+   ```
+
+   **`test_status: unfixed` の場合:**
+   ```
+   - :x: Some tests are still failing after automated fix attempts
+   - Test command: `{test_command}`
+   - Failing tests:
+     - `{test_name_1}`: {error_summary_1}
+     - `{test_name_2}`: {error_summary_2}
+   - Fix attempts:
+     - Round 1: {what_was_tried_1}
+     - Round 2: {what_was_tried_2}
+     - Round 3: {what_was_tried_3}
+   - **Manual review required**: The above test failures need human intervention.
+   ```
+
+6. エラー時:
+   - ブランチを削除する: `git switch {default_branch} && git branch -D fix/dependabot-{package_name}`
+   - スキップして次のパッケージへ進む
+   - 結果に「失敗」と理由を記録する
+
+#### 5. 結果を返却
+
+各パッケージの対応結果（成功/失敗、テスト結果、PR 種別、対象アラート番号、PR URL）をまとめて返す。
 
 ---
 
@@ -261,11 +420,14 @@ EOF
 
 全サブエージェントの完了を `TaskOutput`（`block: true`）で待機し、各エージェントの結果を回収する。結果をまとめてテーブル形式で表示する:
 
-| リポジトリ | パッケージ | アラート # | テスト結果 | 対応結果 | PR URL |
-|-----------|-----------|-----------|-----------|---------|--------|
-| owner/repo | lodash | #123, #789 | passed | 成功 | URL |
-| owner/repo | express | #456 | fixed (2 fixes) | 成功 | URL |
-| owner/repo | axios | #101 | unfixed (3 failures) | 成功(要確認) | URL |
-| owner/repo | react | #202 | no tests | 成功 | URL |
-| owner/repo | webpack | #303 | - | スキップ（既存PR） | 既存PR URL |
-| owner/repo | chalk | #404 | - | 失敗（理由） | - |
+| リポジトリ | パッケージ | アラート # | 依存種別 | 更新方法 | テスト結果 | PR 種別 | 対応結果 | PR URL |
+|-----------|-----------|-----------|---------|---------|-----------|--------|---------|--------|
+| owner/repo | lodash | #123, #789 | direct | normal | passed | まとめ | 成功 | URL |
+| owner/repo | express | #456 | direct | normal | fixed (2 fixes) | まとめ | 成功 | URL（同上） |
+| owner/repo | semver | #789 | indirect | lock_refresh | passed | まとめ | 成功 | URL（同上） |
+| owner/repo | json5 | #800 | indirect | override | no_test_env | まとめ | 成功 | URL（同上） |
+| owner/repo | axios | #101 | direct | normal | unfixed (3 failures) | 個別 | 成功(要確認) | URL |
+| owner/repo | react | #202 | direct | normal | passed (関連テストなし) | 個別 | 成功 | URL |
+| owner/repo | minimist | #505 | indirect | - | - | - | スキップ（severity low） | - |
+| owner/repo | webpack | #303 | - | - | - | - | スキップ（既存PR） | 既存PR URL |
+| owner/repo | chalk | #404 | - | - | - | - | 失敗（理由） | - |
