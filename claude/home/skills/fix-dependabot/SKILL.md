@@ -36,14 +36,19 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 
 ## Step 3: リポジトリごとの並列修正
 
-アラートのあるリポジトリごとに Task ツール（`subagent_type: general-purpose`）を起動して **並列処理** する。
+アラートのあるリポジトリごとに Task ツール（`subagent_type: general-purpose`）を **`run_in_background: true`** で起動して **バックグラウンド並列処理** する。
+
+**重要: メインセッションの役割は Step 1, 2, 4 のみ。実際の修正作業はすべてサブエージェントに委譲する。メインセッションでリポジトリのクローンや修正作業を行ってはならない。**
 
 ### サブエージェントに渡す情報
 
+サブエージェントが自己完結して作業できるよう、以下の情報をすべてプロンプトに含める:
+
 - リポジトリ名（owner/repo）
 - デフォルトブランチ名
-- アラートの詳細リスト（アラート番号、パッケージ名、現在バージョン、修正バージョン、エコシステム、severity、URL）
+- アラートの詳細リスト（アラート番号、パッケージ名、現在バージョン、修正バージョン、エコシステム、severity、URL）をJSON形式で渡す
 - 作業ディレクトリのパス（スキル実行時のカレントディレクトリ）
+- 以下「サブエージェントの処理フロー」セクションの手順をそのまま含める
 
 ### サブエージェントの処理フロー（各リポジトリにつき 1 エージェント）
 
@@ -54,43 +59,52 @@ gh api /repos/{owner}/{repo}/dependabot/alerts --jq '[.[] | select(.state=="open
 - `git switch {default_branch}` でデフォルトブランチに切り替え
 - `git pull` で最新化
 
-#### 2. アラートごとの修正（アラートを順次処理）
+#### 2. アラートのグルーピング
+
+同一パッケージに複数のアラートがある場合、1つの PR にまとめる。
+
+- アラートをパッケージ名でグルーピングする
+- 各グループ内で最新の修正バージョン（最も高いバージョン）を採用する
+
+#### 3. パッケージごとの修正（グループを順次処理）
 
 **a. ブランチ作成:**
-- ブランチ名: `fix/dependabot-{alert_number}-{package_name}`
+- ブランチ名: `fix/dependabot-{package_name}`
 - `git switch {default_branch}` でデフォルトブランチに戻る
 - `git switch -c {branch_name}` で作業ブランチ作成
 
 **b. 依存関係の更新（エコシステムに応じて）:**
-- **npm**: `npm install {package}@{fixed_version}`
+- **npm**: `npm install {package}@{latest_fixed_version}`
 - **pip**: `requirements.txt` / `pyproject.toml` 等のバージョンを編集し `pip install -r requirements.txt` 等
 - **cargo**: `cargo update -p {package}`
-- **gomod**: `go get {package}@{fixed_version} && go mod tidy`
+- **gomod**: `go get {package}@{latest_fixed_version} && go mod tidy`
 - **bundler**: `bundle update {gem}`
-- **composer**: `composer require {package}:{fixed_version}`
+- **composer**: `composer require {package}:{latest_fixed_version}`
 - **maven**: `pom.xml` のバージョンを直接編集
-- **nuget**: `dotnet add package {package} --version {fixed_version}`
+- **nuget**: `dotnet add package {package} --version {latest_fixed_version}`
 - エコシステムが不明な場合: マニフェストファイルを特定して該当パッケージのバージョンを直接編集
 
 **c. コミット・プッシュ:**
 ```bash
 git add .
-git commit -m "fix: update {package} to {fixed_version} (dependabot alert #{number})"
+git commit -m "fix: update {package} to {latest_fixed_version} (dependabot alerts #{numbers})"
 git push -u origin {branch_name}
 ```
 
 **d. PR 作成:**
 ```bash
 gh pr create \
-  --title "fix: update {package} to {fixed_version}" \
+  --title "fix: update {package} to {latest_fixed_version}" \
   --body "$(cat <<'EOF'
 ## Summary
-- Fixes Dependabot alert #{number}
-- Updates {package} from {current_version} to {fixed_version}
-- Severity: {severity}
+- Fixes Dependabot alerts: #{number1}, #{number2}, ...
+- Updates {package} from {current_version} to {latest_fixed_version}
+- Severities: {severity1}, {severity2}, ...
 
-## Dependabot Alert
-{alert_url}
+## Dependabot Alerts
+- {alert_url_1}
+- {alert_url_2}
+- ...
 EOF
 )" \
   --repo {owner}/{repo}
@@ -98,20 +112,20 @@ EOF
 
 **e. エラー時:**
 - ブランチを削除する: `git switch {default_branch} && git branch -D {branch_name}`
-- スキップして次のアラートへ進む
+- スキップして次のパッケージへ進む
 - 結果に「失敗」と理由を記録する
 
-#### 3. 結果を返却
+#### 4. 結果を返却
 
-各アラートの対応結果（成功/失敗、PR URL）をまとめて返す。
+各パッケージの対応結果（成功/失敗、対象アラート番号、PR URL）をまとめて返す。
 
 ---
 
-## Step 4: 結果レポート
+## Step 4: 結果回収・レポート
 
-全サブエージェントの完了後、結果をまとめてテーブル形式で表示する:
+全サブエージェントの完了を `TaskOutput`（`block: true`）で待機し、各エージェントの結果を回収する。結果をまとめてテーブル形式で表示する:
 
-| リポジトリ | アラート # | パッケージ | 対応結果 | PR URL |
+| リポジトリ | パッケージ | アラート # | 対応結果 | PR URL |
 |-----------|-----------|-----------|---------|--------|
-| owner/repo | #123 | lodash | 成功 | URL |
-| owner/repo | #456 | express | 失敗（理由） | - |
+| owner/repo | lodash | #123, #789 | 成功 | URL |
+| owner/repo | express | #456 | 失敗（理由） | - |
