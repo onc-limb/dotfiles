@@ -68,9 +68,16 @@
       "Bash(git clean *)",
       "Bash(rm -rf *)"
     ],
-    "ask": ["Bash(git push *)", "Bash(git checkout .)", "Bash(git restore .)"],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(git checkout .)",
+      "Bash(git restore .)"
+    ],
     "defaultMode": "plan"
   },
   "language": "japanese",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "enabledPlugins": {
+    "swift-lsp@claude-plugins-official": true
+  }
 }
