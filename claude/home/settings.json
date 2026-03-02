@@ -75,9 +75,10 @@
     ],
     "defaultMode": "plan"
   },
-  "language": "japanese",
-  "skipDangerousModePermissionPrompt": true,
   "enabledPlugins": {
     "swift-lsp@claude-plugins-official": true
-  }
+  },
+  "language": "japanese",
+  "skipDangerousModePermissionPrompt": true,
+  "model": "sonnet"
 }
