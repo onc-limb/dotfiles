@@ -1,0 +1,12 @@
+# Copy this file to <project-root>/.envrc and run `direnv allow`.
+#
+# Loads fine-grained PAT (noboru-note org scope) from macOS keychain into
+# GH_TOKEN so that `gh` CLI can read/write Issues, PRs, and Projects v2 in
+# the noboru-note org.
+#
+# Prerequisites:
+#   - PAT is stored in macOS Keychain with:
+#       service = gh-noboru-note-pat
+#       account = onc-limb
+#   - direnv is installed and `direnv hook` is loaded in the shell rc file.
+export GH_TOKEN="$(security find-generic-password -a onc-limb -s gh-noboru-note-pat -w)"
