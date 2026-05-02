@@ -26,7 +26,7 @@
     ],
     "deny": [
       "Read(**/.env)",
-      "Read(**/.env.*)",
+      "Read(**/.env.!(example))",
       "Read(**/secrets/**)",
       "Read(**/credentials*)",
       "Read(**/.ssh/**)",
@@ -41,7 +41,7 @@
       "Read(**/*.pfx)",
       "Read(**/*.keystore)",
       "Edit(**/.env)",
-      "Edit(**/.env.*)",
+      "Edit(**/.env.!(example))",
       "Edit(**/secrets/**)",
       "Edit(**/credentials*)",
       "Edit(**/*.pem)",
@@ -50,7 +50,7 @@
       "Edit(**/*.pfx)",
       "Edit(**/*.keystore)",
       "Write(**/.env)",
-      "Write(**/.env.*)",
+      "Write(**/.env.!(example))",
       "Write(**/secrets/**)",
       "Write(**/credentials*)",
       "Write(**/*.pem)",
@@ -83,8 +83,15 @@
       "Bash(git clean *)",
       "Bash(rm -rf *)"
     ],
-    "ask": ["Bash(git checkout .)", "Bash(git restore .)"],
+    "ask": [
+      "Bash(git checkout .)",
+      "Bash(git restore .)"
+    ],
     "defaultMode": "auto"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash /Users/satoshi-onga/.claude/statusline.sh"
   },
   "enabledPlugins": {
     "swift-lsp@claude-plugins-official": true
@@ -95,10 +102,7 @@
     "mode": "hold"
   },
   "skipDangerousModePermissionPrompt": true,
-  "voiceEnabled": false,
+  "theme": "auto",
   "skipAutoPermissionPrompt": true,
-  "statusLine": {
-    "type": "command",
-    "command": "bash /Users/satoshi-onga/.claude/statusline.sh"
-  }
+  "voiceEnabled": false
 }
