@@ -93,10 +93,26 @@
     "type": "command",
     "command": "bash /Users/satoshi-onga/.claude/statusline.sh"
   },
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/satoshi-onga/Documents/onclimb-industries/.claude/skills/jarvis-worklog/bin/collect.sh >> /Users/satoshi-onga/Documents/onclimb-industries/worklog-data/logs/collect-hook.log 2>&1",
+            "timeout": 120,
+            "statusMessage": "worklog: collecting session logs"
+          }
+        ]
+      }
+    ]
+  },
   "enabledPlugins": {
-    "swift-lsp@claude-plugins-official": true
+    "swift-lsp@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true
   },
   "language": "japanese",
+  "tui": "fullscreen",
   "voice": {
     "enabled": false,
     "mode": "hold"
@@ -104,5 +120,6 @@
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false
+  "voiceEnabled": false,
+  "model": "opus[1m]"
 }
