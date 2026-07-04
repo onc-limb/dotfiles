@@ -1,8 +1,21 @@
+-- ターミナル (wezterm) が白背景 (VSCode Light Modern 風 #FFFFFF) のためライトテーマを使う
+-- 暗い背景に戻す場合はここを "dark" にする (vscode.nvim が Dark テーマに追従)
+vim.o.background = "light"
+
 vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
 vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
 vim.api.nvim_set_hl(0, "SignColumn", { bg = "none" })
 
 vim.opt.number = true
+
+-- 基本オプション
+vim.opt.clipboard = "unnamedplus" -- y/p を macOS のクリップボードと共有
+vim.opt.undofile = true -- ファイルを閉じても undo 履歴を保持
+vim.opt.ignorecase = true -- 検索で大文字小文字を無視
+vim.opt.smartcase = true -- ただし大文字を含む検索では区別する
+vim.opt.scrolloff = 5 -- カーソルの上下に常に確保する行数
+vim.opt.splitright = true -- 縦分割は右に開く
+vim.opt.splitbelow = true -- 横分割は下に開く
 
 -- 1. Leaderキーをスペースに設定
 vim.g.mapleader = " "
@@ -63,12 +76,13 @@ vim.api.nvim_create_autocmd("FileType", {
 
 -- Treesitter 用のハイライトグループ (重要)
 -- 最新版では markdownH1 ではなく、以下の形式が推奨される場合があります
-vim.api.nvim_set_hl(0, "@markup.heading.1.markdown", { fg = "#38bdf8", bold = true })
-vim.api.nvim_set_hl(0, "@markup.heading.2.markdown", { fg = "#60a5fa", bold = true })
-vim.api.nvim_set_hl(0, "@markup.heading.3.markdown", { fg = "#93c5fd" })
-vim.api.nvim_set_hl(0, "@markup.quote.markdown", { fg = "#94a3b8" })
--- コードブロックの背景
-vim.api.nvim_set_hl(0, "@markup.raw.block.markdown", { bg = "#020617" })
+-- VSCode Light Modern の Markdown トークンカラーに合わせる (見出しは全レベル #800000)
+vim.api.nvim_set_hl(0, "@markup.heading.1.markdown", { fg = "#800000", bold = true })
+vim.api.nvim_set_hl(0, "@markup.heading.2.markdown", { fg = "#800000", bold = true })
+vim.api.nvim_set_hl(0, "@markup.heading.3.markdown", { fg = "#800000", bold = true })
+vim.api.nvim_set_hl(0, "@markup.quote.markdown", { fg = "#0451A5", italic = true })
+-- コードブロックの背景 (VSCode の textCodeBlock 相当の淡いグレー)
+vim.api.nvim_set_hl(0, "@markup.raw.block.markdown", { bg = "#F3F3F3" })
 
 -- 見出し移動キーマップを少し改良 (検索履歴を汚さない)
 vim.keymap.set("n", "]h", [[<cmd>keepjumps / ^#\+<CR>]], { desc = "Next heading" })

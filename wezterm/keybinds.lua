@@ -1,15 +1,6 @@
 local wezterm = require("wezterm")
 local act = wezterm.action
 
--- Show which key table is active in the status area
-wezterm.on("update-right-status", function(window, pane)
-	local name = window:active_key_table()
-	if name then
-		name = "TABLE: " .. name
-	end
-	window:set_right_status(name or "")
-end)
-
 return {
 	keys = {
 		{
@@ -72,6 +63,13 @@ return {
 		-- コピーモード
 		-- { key = 'X', mods = 'LEADER', action = act.ActivateKeyTable{ name = 'copy_mode', one_shot =false }, },
 		{ key = "[", mods = "LEADER", action = act.ActivateCopyMode },
+
+		-- スクロール (コピーモードに入らず直接 / vimium 風)
+		{ key = "j", mods = "SHIFT|CTRL", action = act.ScrollByLine(1) },
+		{ key = "k", mods = "SHIFT|CTRL", action = act.ScrollByLine(-1) },
+		{ key = "d", mods = "SHIFT|CTRL", action = act.ScrollByPage(0.5) },
+		{ key = "u", mods = "SHIFT|CTRL", action = act.ScrollByPage(-0.5) },
+		{ key = "g", mods = "SHIFT|CTRL", action = act.ScrollToBottom },
 		-- コピー
 		{ key = "c", mods = "SUPER", action = act.CopyTo("Clipboard") },
 		-- 貼り付け
@@ -109,6 +107,10 @@ return {
 		{ key = "8", mods = "SUPER", action = act.ActivateTab(7) },
 		{ key = "9", mods = "SUPER", action = act.ActivateTab(-1) },
 
+		-- QuickSelect: 画面上のパス・URL・ハッシュ等をキーボードだけで選んでコピー
+		{ key = "f", mods = "LEADER", action = act.QuickSelect },
+		-- スクロールバック検索
+		{ key = "/", mods = "LEADER", action = act.Search({ CaseInSensitiveString = "" }) },
 		-- コマンドパレット
 		{ key = "p", mods = "SHIFT|CTRL", action = act.ActivateCommandPalette },
 		-- 設定再読み込み
@@ -178,6 +180,10 @@ return {
 			{ key = "f", mods = "CTRL", action = act.CopyMode("PageDown") },
 			{ key = "d", mods = "CTRL", action = act.CopyMode({ MoveByPage = 0.5 }) },
 			{ key = "u", mods = "CTRL", action = act.CopyMode({ MoveByPage = -0.5 }) },
+			-- 検索
+			{ key = "/", mods = "NONE", action = act.Search({ CaseSensitiveString = "" }) },
+			{ key = "n", mods = "NONE", action = act.CopyMode("NextMatch") },
+			{ key = "N", mods = "NONE", action = act.CopyMode("PriorMatch") },
 			-- 範囲選択モード
 			{ key = "v", mods = "NONE", action = act.CopyMode({ SetSelectionMode = "Cell" }) },
 			{ key = "v", mods = "CTRL", action = act.CopyMode({ SetSelectionMode = "Block" }) },
@@ -194,6 +200,20 @@ return {
 			{ key = "Escape", mods = "NONE", action = act.CopyMode("Close") },
 			{ key = "c", mods = "CTRL", action = act.CopyMode("Close") },
 			{ key = "q", mods = "NONE", action = act.CopyMode("Close") },
+		},
+		-- 検索モード (copy_mode の / や leader + / で入る)
+		search_mode = {
+			-- Enterで検索を確定して copy_mode に戻る (n / N でマッチ間を移動できる)
+			{ key = "Enter", mods = "NONE", action = act.CopyMode("AcceptPattern") },
+			{ key = "Escape", mods = "NONE", action = act.CopyMode("Close") },
+			{ key = "n", mods = "CTRL", action = act.CopyMode("NextMatch") },
+			{ key = "p", mods = "CTRL", action = act.CopyMode("PriorMatch") },
+			-- 大文字小文字の区別 / 正規表現のトグル
+			{ key = "r", mods = "CTRL", action = act.CopyMode("CycleMatchType") },
+			-- 検索文字列をクリア
+			{ key = "u", mods = "CTRL", action = act.CopyMode("ClearPattern") },
+			{ key = "UpArrow", mods = "NONE", action = act.CopyMode("PriorMatch") },
+			{ key = "DownArrow", mods = "NONE", action = act.CopyMode("NextMatch") },
 		},
 	},
 }

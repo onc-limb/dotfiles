@@ -1,17 +1,31 @@
 return {
 	{
-		"scottmckendry/cyberdream.nvim",
+		"Mofiqul/vscode.nvim",
 		lazy = false,
 		priority = 1000,
 		config = function()
-			require("cyberdream").setup({
-				transparent = true, -- ★背景透過を有効化
+			require("vscode").setup({
+				-- vim.o.background (init.lua で light 指定) に追従して Light テーマになる
+				transparent = true, -- ★背景透過を有効化 (wezterm の背景 #FFFFFF が透ける)
 				italic_comments = true,
-				hide_fillchars = true,
-				borderless_telescope = true, -- TelescopeなどのUIも枠なしでスッキリ
 			})
-			vim.cmd("colorscheme cyberdream")
+			vim.cmd("colorscheme vscode")
 		end,
+	},
+	-- ステータスライン (Git ブランチ・diff・診断を表示)
+	{
+		"nvim-lualine/lualine.nvim",
+		dependencies = { "nvim-tree/nvim-web-devicons" },
+		opts = {
+			options = {
+				theme = "vscode", -- vscode.nvim が提供する lualine テーマ
+			},
+			-- デフォルトの sections に branch が含まれる (lualine_b = { "branch", "diff", "diagnostics" })
+			sections = {
+				-- path = 1: ファイル名だけでなく cwd からの相対パスで表示 (同名ファイルの区別のため)
+				lualine_c = { { "filename", path = 1 } },
+			},
+		},
 	},
 	{
 		"nvim-treesitter/nvim-treesitter",
@@ -76,7 +90,14 @@ return {
 			-- vim.lsp.config を使用 (Neovim 0.11+)
 			vim.lsp.config.vtsls = {
 				cmd = { "vtsls", "--stdio" },
-				filetypes = { "javascript", "javascriptreact", "javascript.jsx", "typescript", "typescriptreact", "typescript.tsx" },
+				filetypes = {
+					"javascript",
+					"javascriptreact",
+					"javascript.jsx",
+					"typescript",
+					"typescriptreact",
+					"typescript.tsx",
+				},
 				root_markers = { "package.json", "tsconfig.json", "jsconfig.json", ".git" },
 				capabilities = capabilities,
 			}
@@ -172,6 +193,8 @@ return {
 	{
 		"stevearc/oil.nvim",
 		dependencies = { "nvim-tree/nvim-web-devicons" },
+		-- 遅延読み込みだと nvim . などディレクトリ指定の起動時に oil が開かないため、起動時に読み込む (oil 公式の推奨)
+		lazy = false,
 		opts = {
 			view_options = {
 				show_hidden = true, -- ドットファイルを表示
@@ -182,6 +205,17 @@ return {
 				max_height = 30,
 			},
 		},
+		config = function(_, opts)
+			require("oil").setup(opts)
+			-- 引数なしで nvim を起動した時もカレントディレクトリの oil 表示から始める
+			vim.api.nvim_create_autocmd("VimEnter", {
+				callback = function()
+					if vim.fn.argc() == 0 and vim.api.nvim_buf_get_name(0) == "" then
+						require("oil").open()
+					end
+				end,
+			})
+		end,
 		-- キーマッピング (ここで設定すると、キーを押した時にプラグインが読み込まれます)
 		keys = {
 			-- <Space> + e でプロジェクトルートをフロート表示
@@ -224,6 +258,46 @@ return {
 					require("fzf-lua").files()
 				end,
 				desc = "Fzf Files",
+			},
+			-- プロジェクト全文検索 (VSCode の Cmd+Shift+F 相当)
+			{
+				"<leader>/",
+				function()
+					require("fzf-lua").live_grep()
+				end,
+				desc = "Fzf Live Grep",
+			},
+			-- 開いているバッファの切り替え
+			{
+				"<leader>b",
+				function()
+					require("fzf-lua").buffers()
+				end,
+				desc = "Fzf Buffers",
+			},
+			-- 最近開いたファイル
+			{
+				"<leader>o",
+				function()
+					require("fzf-lua").oldfiles()
+				end,
+				desc = "Fzf Recent Files",
+			},
+			-- 直前の検索を再開
+			{
+				"<leader>R",
+				function()
+					require("fzf-lua").resume()
+				end,
+				desc = "Fzf Resume",
+			},
+			-- ワークスペース全体の診断一覧 (VSCode の「問題」パネル相当)
+			{
+				"<leader>x",
+				function()
+					require("fzf-lua").diagnostics_workspace()
+				end,
+				desc = "Fzf Workspace Diagnostics",
 			},
 		},
 	},
@@ -284,6 +358,8 @@ return {
 		"lewis6991/gitsigns.nvim",
 		config = function()
 			require("gitsigns").setup({
+				-- ステージ済みハンクのサインを未ステージと別スタイルで表示 (VSCode のガター表示相当)
+				signs_staged_enable = true,
 				-- ここでキーマッピングを設定します
 				on_attach = function(bufnr)
 					local gs = package.loaded.gitsigns
@@ -331,6 +407,12 @@ return {
 					-- --- プレビュー ---
 					map("n", "<Leader>hp", gs.preview_hunk) -- 変更内容を浮動ウィンドウで表示
 
+					-- --- 差分表示 (VSCode のエディタ差分ビュー相当) ---
+					map("n", "<Leader>hd", gs.diffthis) -- 作業ツリー vs インデックス (未ステージの差分)
+					map("n", "<Leader>hD", function()
+						gs.diffthis("HEAD")
+					end) -- 作業ツリー vs HEAD (ステージ済みを含む全差分)
+
 					-- --- Blame（誰が書いたか表示） ---
 					map("n", "<Leader>hb", function()
 						gs.blame_line({ full = true })
@@ -347,10 +429,91 @@ return {
 	{
 		"sindrets/diffview.nvim",
 		config = function()
-			-- 特に設定しなくても使えますが、キーバインドがあると便利です
-			vim.keymap.set("n", "<Leader>do", ":DiffviewOpen<CR>") -- 差分ビューを開く
-			vim.keymap.set("n", "<Leader>dc", ":DiffviewClose<CR>") -- 差分ビューを閉じる
-			vim.keymap.set("n", "<Leader>dh", ":DiffviewFileHistory %<CR>") -- 現在のファイルの履歴を見る
+			-- キーは <Leader>g (git) + 頭文字で統一 (gs = status は fugitive 側で定義済み)
+			-- どのキーも再度押すと差分ビューを閉じるトグル式
+
+			-- 差分ビューが開いていれば閉じ、閉じていれば open_fn を実行する
+			local function toggle_view(open_fn)
+				return function()
+					if require("diffview.lib").get_current_view() then
+						vim.cmd("DiffviewClose")
+					else
+						open_fn()
+					end
+				end
+			end
+
+			-- リモートブランチとの比較対象を解決する
+			-- upstream が設定されていればそれを、なければ origin/HEAD (リモートの既定ブランチ) を使う
+			local function remote_ref()
+				local upstream = vim.fn.systemlist("git rev-parse --abbrev-ref @{upstream}")[1]
+				if vim.v.shell_error == 0 then
+					return upstream
+				end
+				local head = vim.fn.systemlist("git symbolic-ref --short refs/remotes/origin/HEAD")[1]
+				if vim.v.shell_error == 0 then
+					return head
+				end
+				return nil
+			end
+
+			local function open_remote_diff()
+				local ref = remote_ref()
+				if not ref then
+					vim.notify(
+						"リモートの比較対象が見つかりません (upstream / origin/HEAD 未設定)",
+						vim.log.levels.WARN
+					)
+					return
+				end
+				vim.cmd("DiffviewOpen " .. ref .. "...HEAD")
+			end
+
+			-- g + d = git diff: ローカルの変更一覧 (未ステージ / ステージ済みをパネルで区別表示)
+			-- :DiffviewOpen のファイルパネルは VSCode のソース管理パネル相当
+			vim.keymap.set(
+				"n",
+				"<Leader>gd",
+				toggle_view(function()
+					vim.cmd("DiffviewOpen")
+				end),
+				{ desc = "Git diff (toggle)" }
+			)
+
+			-- g + r = git remote: リモートブランチとの差分 (merge-base 比較 = push で届く内容)
+			vim.keymap.set("n", "<Leader>gr", toggle_view(open_remote_diff), { desc = "Git remote diff (toggle)" })
+
+			-- g + R = git Remote (fetch 付き): git fetch で最新化してからリモートとの差分を開く
+			vim.keymap.set(
+				"n",
+				"<Leader>gR",
+				toggle_view(function()
+					vim.notify("git fetch ...")
+					vim.system({ "git", "fetch" }, {}, function(out)
+						vim.schedule(function()
+							if out.code ~= 0 then
+								vim.notify(
+									"git fetch に失敗しました: " .. (out.stderr or ""),
+									vim.log.levels.ERROR
+								)
+								return
+							end
+							open_remote_diff()
+						end)
+					end)
+				end),
+				{ desc = "Fetch and git remote diff (toggle)" }
+			)
+
+			-- g + h = git history: 現在のファイルの変更履歴
+			vim.keymap.set(
+				"n",
+				"<Leader>gh",
+				toggle_view(function()
+					vim.cmd("DiffviewFileHistory %")
+				end),
+				{ desc = "Git file history (toggle)" }
+			)
 		end,
 	},
 }

@@ -13,6 +13,7 @@ config.font = wezterm.font_with_fallback({
 config.use_ime = true
 config.window_background_opacity = 1.0
 config.audible_bell = "SystemBeep"
+config.scrollback_lines = 10000
 
 -- 非アクティブペインを少し淡くして視線を誘導
 config.inactive_pane_hsb = { saturation = 0.85, brightness = 0.92 }
@@ -29,10 +30,10 @@ config.hide_tab_bar_if_only_one_tab = false
 -- falseにするとタブバーの透過が効かなくなる
 config.use_fancy_tab_bar = false
 
--- タブバーを背景色に合わせつつ、ほんのり暖色グラデーションをかける
+-- エディタ背景 #FFFFFF、パネル背景 #F8F8F8 (VSCode Light Modern) の淡いグラデーション
 config.window_background_gradient = {
 	orientation = { Linear = { angle = -45.0 } },
-	colors = { "#FAFAFA", "#F4EFE8" },
+	colors = { "#FFFFFF", "#F8F8F8" },
 	interpolation = "Linear",
 	blend = "Rgb",
 }
@@ -40,35 +41,35 @@ config.window_background_gradient = {
 -- タブの追加ボタンを非表示
 config.show_new_tab_button_in_tab_bar = false
 
--- Zed One Light 風のカラーパレット
+-- VSCode Light Modern のカラーパレット
 config.colors = {
-	foreground = "#383A42",
-	background = "#FAFAFA",
-	cursor_bg = "#526EFF",
-	cursor_fg = "#FAFAFA",
-	cursor_border = "#526EFF",
-	selection_fg = "#383A42",
-	selection_bg = "#D4D7DA",
+	foreground = "#3B3B3B",
+	background = "#FFFFFF",
+	cursor_bg = "#005FB8",
+	cursor_fg = "#FFFFFF",
+	cursor_border = "#005FB8",
+	selection_fg = "#3B3B3B",
+	selection_bg = "#ADD6FF",
 
 	ansi = {
-		"#1A1A1A", -- black
-		"#CA1243", -- red
-		"#3E8A3D", -- green
-		"#A26B00", -- yellow
-		"#0033B3", -- blue
-		"#851A82", -- magenta
-		"#006B99", -- cyan
-		"#383A42", -- white (背景に対して読めるよう暗色化)
+		"#000000", -- black
+		"#CD3131", -- red
+		"#00BC00", -- green
+		"#949800", -- yellow
+		"#0451A5", -- blue
+		"#BC05BC", -- magenta
+		"#0598BC", -- cyan
+		"#555555", -- white
 	},
 	brights = {
-		"#4F525E", -- bright black
-		"#E45649", -- bright red
-		"#50A14F", -- bright green
-		"#C18401", -- bright yellow
-		"#1851E0", -- bright blue
-		"#A626A4", -- bright magenta
-		"#0184BC", -- bright cyan
-		"#4F525E", -- bright white (背景に対して読めるよう暗色化)
+		"#666666", -- bright black
+		"#CD3131", -- bright red
+		"#14CE14", -- bright green
+		"#B5BA00", -- bright yellow
+		"#0451A5", -- bright blue
+		"#BC05BC", -- bright magenta
+		"#0598BC", -- bright cyan
+		"#8C8C8C", -- bright white (VSCode 定義は #A5A5A5 だが白背景で読めるよう暗色化)
 	},
 
 	tab_bar = {
@@ -83,7 +84,7 @@ local SOLID_LEFT_ARROW = wezterm.nerdfonts.ple_left_half_circle_thick
 -- タブの右側の装飾
 local SOLID_RIGHT_ARROW = wezterm.nerdfonts.ple_right_half_circle_thick
 
--- 右下ステータス: leader 状態 + 時間帯絵文字 + 時刻
+-- 右下ステータス: キーテーブル / leader 状態 + 時間帯絵文字 + 時刻
 wezterm.on("update-right-status", function(window, pane)
 	local date = wezterm.strftime("%H:%M")
 	local hour = tonumber(wezterm.strftime("%H"))
@@ -98,22 +99,29 @@ wezterm.on("update-right-status", function(window, pane)
 		mood = "🌙"
 	end
 
-	local leader = window:leader_is_active() and " LEADER " or ""
+	-- アクティブなキーテーブル名 > LEADER の優先順で表示
+	local mode = ""
+	local key_table = window:active_key_table()
+	if key_table then
+		mode = " TABLE: " .. key_table .. " "
+	elseif window:leader_is_active() then
+		mode = " LEADER "
+	end
 	window:set_right_status(wezterm.format({
-		{ Foreground = { Color = "#CC7722" } },
-		{ Text = leader },
-		{ Foreground = { Color = "#4F525E" } },
+		{ Foreground = { Color = "#005FB8" } },
+		{ Text = mode },
+		{ Foreground = { Color = "#616161" } },
 		{ Text = mood .. "  " .. date .. "  " },
 	}))
 end)
 
 wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
-	local background = "#E5E5E6"
-	local foreground = "#383A42"
+	local background = "#ECECEC"
+	local foreground = "#3B3B3B"
 	local edge_background = "none"
 	if tab.is_active then
-		background = "#CC7722"
-		foreground = "#1a1b26"
+		background = "#005FB8"
+		foreground = "#FFFFFF"
 	end
 	local edge_foreground = background
 	local title = "   " .. wezterm.truncate_right(tab.active_pane.title, max_width - 1) .. "   "
