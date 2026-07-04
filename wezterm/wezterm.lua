@@ -84,6 +84,16 @@ local SOLID_LEFT_ARROW = wezterm.nerdfonts.ple_left_half_circle_thick
 -- タブの右側の装飾
 local SOLID_RIGHT_ARROW = wezterm.nerdfonts.ple_right_half_circle_thick
 
+-- 左上ステータス: 現在のワークスペース名
+wezterm.on("update-status", function(window, pane)
+	local workspace = window:active_workspace()
+	window:set_left_status(wezterm.format({
+		{ Background = { Color = "#005FB8" } },
+		{ Foreground = { Color = "#FFFFFF" } },
+		{ Text = "  " .. wezterm.nerdfonts.cod_terminal_bash .. "  " .. workspace .. "  " },
+	}))
+end)
+
 -- 右下ステータス: キーテーブル / leader 状態 + 時間帯絵文字 + 時刻
 wezterm.on("update-right-status", function(window, pane)
 	local date = wezterm.strftime("%H:%M")
