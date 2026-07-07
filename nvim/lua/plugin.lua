@@ -516,4 +516,30 @@ return {
 			)
 		end,
 	},
+
+	-----------------------------------------------------------
+	-- 4. render-markdown.nvim: Markdown をバッファ内でリッチ表示
+	-----------------------------------------------------------
+	{
+		"MeanderingProgrammer/render-markdown.nvim",
+		dependencies = { "nvim-treesitter/nvim-treesitter", "nvim-tree/nvim-web-devicons" },
+		ft = { "markdown" },
+		opts = {
+			-- ノーマルモードでは装飾表示、インサートモードに入った行は生のマークダウンに戻る
+			render_modes = { "n", "c", "t" },
+		},
+	},
+
+	-----------------------------------------------------------
+	-- 5. snacks.nvim (image): 画像ファイル・md 内の画像をターミナルに表示
+	--    wezterm の kitty graphics protocol を利用 (要 ImageMagick)
+	-----------------------------------------------------------
+	{
+		"folke/snacks.nvim",
+		priority = 1000,
+		lazy = false,
+		opts = {
+			image = { enabled = true },
+		},
+	},
 }

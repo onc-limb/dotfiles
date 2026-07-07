@@ -1,0 +1,5 @@
+# yazi 設定 (画像プレビュー自体はデフォルトで有効)
+
+[mgr]
+# ドットファイルを表示 (oil.nvim の show_hidden と揃える)
+show_hidden = true
