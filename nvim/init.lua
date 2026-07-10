@@ -17,6 +17,41 @@ vim.opt.scrolloff = 5 -- カーソルの上下に常に確保する行数
 vim.opt.splitright = true -- 縦分割は右に開く
 vim.opt.splitbelow = true -- 横分割は下に開く
 
+-- =========================
+-- 外部変更の自動リロード
+-- =========================
+-- 別プロセス (Claude Code 等) がファイルを書き換えたら自動で読み直す
+-- (バッファに未保存の変更がある場合は上書きせず警告が出る)
+vim.opt.autoread = true
+
+-- フォーカス復帰・バッファ切替・カーソル停止時に外部変更をチェック
+vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold" }, {
+	callback = function()
+		if vim.fn.getcmdwintype() == "" then
+			vim.cmd("checktime")
+		end
+	end,
+})
+
+-- フォーカスが当たっていない間も検知できるよう 1 秒間隔でポーリング
+local checktime_timer = vim.loop.new_timer()
+checktime_timer:start(
+	1000,
+	1000,
+	vim.schedule_wrap(function()
+		if vim.fn.mode() == "n" and vim.fn.getcmdwintype() == "" then
+			vim.cmd("silent! checktime")
+		end
+	end)
+)
+
+-- 再読込が起きたら通知する
+vim.api.nvim_create_autocmd("FileChangedShellPost", {
+	callback = function()
+		vim.notify("外部で変更されたファイルを再読込しました", vim.log.levels.INFO)
+	end,
+})
+
 -- 1. Leaderキーをスペースに設定
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
