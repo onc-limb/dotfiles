@@ -31,7 +31,7 @@ return {
 		"nvim-treesitter/nvim-treesitter",
 		branch = "main",
 		lazy = false,
-		build = ":TSInstall markdown markdown_inline yaml tsx typescript javascript html css json",
+		build = ":TSInstall markdown markdown_inline yaml tsx typescript javascript html css json elixir heex eex",
 		config = function()
 			vim.api.nvim_create_autocmd("FileType", {
 				callback = function()
@@ -52,7 +52,7 @@ return {
 		config = function()
 			require("mason").setup()
 			require("mason-lspconfig").setup({
-				ensure_installed = { "vtsls", "tailwindcss", "eslint" },
+				ensure_installed = { "vtsls", "tailwindcss", "eslint", "elixirls" },
 			})
 			local capabilities = require("cmp_nvim_lsp").default_capabilities()
 
@@ -102,6 +102,17 @@ return {
 				capabilities = capabilities,
 			}
 			vim.lsp.enable("vtsls")
+
+			-- Elixir 言語サーバ (elixir-ls)
+			-- mix.exs のあるプロジェクト内で起動すること。elixir/mix が PATH に必要
+			-- (この環境では study/extremis/reference のように mise で elixir が有効なディレクトリ)
+			vim.lsp.config.elixirls = {
+				cmd = { "elixir-ls" },
+				filetypes = { "elixir", "eelixir", "heex", "surface" },
+				root_markers = { "mix.exs", ".git" },
+				capabilities = capabilities,
+			}
+			vim.lsp.enable("elixirls")
 
 			vim.lsp.config.tailwindcss = {
 				cmd = { "tailwindcss-language-server", "--stdio" },
@@ -172,6 +183,10 @@ return {
 				css = { "prettier" },
 				markdown = { "prettier" },
 				yaml = { "prettier" },
+				-- Elixir は mix format で整形 (cwd に mix.exs が必要)
+				elixir = { "mix" },
+				eelixir = { "mix" },
+				heex = { "mix" },
 			},
 			format_on_save = { timeout_ms = 500, lsp_format = "fallback" },
 		},
