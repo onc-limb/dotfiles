@@ -155,6 +155,9 @@ alt-tab = 'workspace-back-and-forth'
 # See: https://nikitabobko.github.io/AeroSpace/commands#move-workspace-to-monitor
 alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
 
+# workspace 1 を「Zen: 左 1/3 / WezTerm: 右 2/3」に整え直す
+alt-ctrl-1 = 'exec-and-forget $HOME/.config/aerospace/scripts/ws1-layout.sh'
+
 # See: https://nikitabobko.github.io/AeroSpace/commands#mode
 alt-shift-semicolon = 'mode service'
 
@@ -192,3 +195,14 @@ c = 1
 d = 1
 e = 1
 f = 1
+
+# workspace 1 に Zen と WezTerm が揃ったら「Zen: 左 1/3 / WezTerm: 右 2/3」に整える。
+# ウィンドウ検出直後はまだツリーに載っていないことがあるので少し待ってから実行する。
+# （2 つ以外のウィンドウがあるときはスクリプト側で何もしない）
+[[on-window-detected]]
+if.app-id = 'app.zen-browser.zen'
+run = ['exec-and-forget sleep 0.5; $HOME/.config/aerospace/scripts/ws1-layout.sh']
+
+[[on-window-detected]]
+if.app-id = 'com.github.wez.wezterm'
+run = ['exec-and-forget sleep 0.5; $HOME/.config/aerospace/scripts/ws1-layout.sh']
