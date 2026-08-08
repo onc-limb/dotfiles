@@ -25,8 +25,9 @@
       "WebSearch"
     ],
     "deny": [
-      "Read(**/.env)",
-      "Read(**/.env.!(example))",
+      "Read(**/.env.prd)",
+      "Read(**/.env.prod)",
+      "Read(**/.env.production)",
       "Read(**/secrets/**)",
       "Read(**/credentials*)",
       "Read(**/.ssh/**)",
@@ -40,8 +41,9 @@
       "Read(**/*.p12)",
       "Read(**/*.pfx)",
       "Read(**/*.keystore)",
-      "Edit(**/.env)",
-      "Edit(**/.env.!(example))",
+      "Edit(**/.env.prd)",
+      "Edit(**/.env.prod)",
+      "Edit(**/.env.production)",
       "Edit(**/secrets/**)",
       "Edit(**/credentials*)",
       "Edit(**/*.pem)",
@@ -49,12 +51,6 @@
       "Edit(**/*.p12)",
       "Edit(**/*.pfx)",
       "Edit(**/*.keystore)",
-      "Write(**/.env)",
-      "Write(**/.env.!(example))",
-      "Write(**/secrets/**)",
-      "Write(**/credentials*)",
-      "Write(**/*.pem)",
-      "Write(**/*.key)",
       "Edit(~/.bashrc)",
       "Edit(~/.zshrc)",
       "Edit(~/.bash_profile)",
@@ -91,6 +87,19 @@
   },
   "model": "claude-fable-5[1m]",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/satoshi-onga/Documents/onclimb-industries/.claude/skills/jarvis-worklog/bin/hook_nightly.sh",
+            "timeout": 30,
+            "async": true,
+            "statusMessage": "worklog: nightly catch-up check"
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [
@@ -114,6 +123,7 @@
     "rust-analyzer-lsp@claude-plugins-official": true
   },
   "language": "japanese",
+  "effortLevel": "high",
   "tui": "fullscreen",
   "voice": {
     "enabled": false,
