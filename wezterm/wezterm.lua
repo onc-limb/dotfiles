@@ -11,7 +11,10 @@ config.font = wezterm.font_with_fallback({
 })
 
 config.use_ime = true
-config.window_background_opacity = 1.0
+-- 通常時は背景を透過してデスクトップ壁紙 (明るめの白・青系) を見せる
+-- (nvim 中は user-var-changed で不透過 #FFFFFF に切り替わる。下の nvim 連携を参照)
+config.window_background_opacity = 0.50
+config.macos_window_background_blur = 20
 config.audible_bell = "SystemBeep"
 config.scrollback_lines = 10000
 
@@ -29,14 +32,6 @@ config.show_tabs_in_tab_bar = true
 config.hide_tab_bar_if_only_one_tab = false
 -- falseにするとタブバーの透過が効かなくなる
 config.use_fancy_tab_bar = false
-
--- エディタ背景 #FFFFFF、パネル背景 #F8F8F8 (VSCode Light Modern) の淡いグラデーション
-config.window_background_gradient = {
-	orientation = { Linear = { angle = -45.0 } },
-	colors = { "#FFFFFF", "#F8F8F8" },
-	interpolation = "Linear",
-	blend = "Rgb",
-}
 
 -- タブの追加ボタンを非表示
 config.show_new_tab_button_in_tab_bar = false
@@ -77,6 +72,32 @@ config.colors = {
 		inactive_tab_edge = "none",
 	},
 }
+
+----------------------------------------------------
+-- nvim 連携: nvim 中だけ VSCode Light Modern の見た目にする
+----------------------------------------------------
+-- nvim 側 (init.lua) が SetUserVar で IS_NVIM=true/false を送ってくる。
+-- ターミナル通常時 (シェル/Claude Code) は透過 + 壁紙のデザイン、
+-- nvim 中は VSCode のエディタと同じ不透過 #FFFFFF + 小さめフォントに切り替える。
+-- 制約: どちらもウィンドウ単位のため、同じウィンドウの別ペインも一緒に切り替わる
+local NVIM_FONT_SIZE = 14.0
+
+wezterm.on("user-var-changed", function(window, pane, name, value)
+	if name ~= "IS_NVIM" then
+		return
+	end
+	local overrides = window:get_config_overrides() or {}
+	if value == "true" then
+		overrides.font_size = NVIM_FONT_SIZE
+		overrides.window_background_opacity = 1.0
+		overrides.macos_window_background_blur = 0
+	else
+		overrides.font_size = nil
+		overrides.window_background_opacity = nil
+		overrides.macos_window_background_blur = nil
+	end
+	window:set_config_overrides(overrides)
+end)
 
 -- タブの形をカスタマイズ
 -- タブの左側の装飾

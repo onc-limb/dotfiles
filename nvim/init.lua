@@ -1,12 +1,12 @@
--- ターミナル (wezterm) が白背景 (VSCode Light Modern 風 #FFFFFF) のためライトテーマを使う
+-- VSCode Light Modern に合わせたライトテーマ
 -- 暗い背景に戻す場合はここを "dark" にする (vscode.nvim が Dark テーマに追従)
+-- 背景は透過せず vscode.nvim の不透過 #FFFFFF を使う
+-- (wezterm のグラデーション背景が透けるとコントラストが崩れて読みにくいため)
 vim.o.background = "light"
 
-vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
-vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
-vim.api.nvim_set_hl(0, "SignColumn", { bg = "none" })
-
 vim.opt.number = true
+vim.opt.cursorline = true -- 現在行をハイライト (VSCode の editor.lineHighlight 相当)
+vim.opt.signcolumn = "yes" -- gitsigns/診断でガターが出たり消えたりして揺れるのを防ぐ
 
 -- 基本オプション
 vim.opt.clipboard = "unnamedplus" -- y/p を macOS のクリップボードと共有
@@ -49,6 +49,30 @@ checktime_timer:start(
 vim.api.nvim_create_autocmd("FileChangedShellPost", {
 	callback = function()
 		vim.notify("外部で変更されたファイルを再読込しました", vim.log.levels.INFO)
+	end,
+})
+
+-- =========================
+-- wezterm 連携: nvim 中はフォントを小さくする
+-- =========================
+-- SetUserVar エスケープシーケンスで wezterm に nvim の起動/終了を通知する
+-- (受け側は wezterm.lua の user-var-changed イベント。font_size を切り替える)
+-- 注意: フォントはウィンドウ単位なので、同じウィンドウの別ペイン (Claude Code 等) も一緒に小さくなる
+local function set_wezterm_user_var(name, value)
+	if not os.getenv("WEZTERM_PANE") then
+		return
+	end
+	io.stdout:write(string.format("\027]1337;SetUserVar=%s=%s\007", name, vim.base64.encode(value)))
+end
+
+vim.api.nvim_create_autocmd({ "VimEnter", "VimResume" }, {
+	callback = function()
+		set_wezterm_user_var("IS_NVIM", "true")
+	end,
+})
+vim.api.nvim_create_autocmd({ "VimLeavePre", "VimSuspend" }, {
+	callback = function()
+		set_wezterm_user_var("IS_NVIM", "false")
 	end,
 })
 

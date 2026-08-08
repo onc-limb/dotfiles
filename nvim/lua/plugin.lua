@@ -6,7 +6,9 @@ return {
 		config = function()
 			require("vscode").setup({
 				-- vim.o.background (init.lua で light 指定) に追従して Light テーマになる
-				transparent = true, -- ★背景透過を有効化 (wezterm の背景 #FFFFFF が透ける)
+				-- 透過はしない: wezterm のグラデーション背景が透けるとコントラストが崩れるため、
+				-- VSCode と同じ不透過のエディタ背景 #FFFFFF をそのまま使う
+				transparent = false,
 				italic_comments = true,
 			})
 			vim.cmd("colorscheme vscode")
@@ -232,21 +234,86 @@ return {
 			})
 		end,
 		-- キーマッピング (ここで設定すると、キーを押した時にプラグインが読み込まれます)
+		-- <leader>e は neo-tree (左ペインのエクスプローラー) に譲り、oil は - での親ディレクトリ編集に専念
 		keys = {
-			-- <Space> + e でプロジェクトルートをフロート表示
-			{
-				"<leader>e",
-				function()
-					require("oil").toggle_float(".")
-				end,
-				desc = "Open project root (Oil Float)",
-			},
 			{
 				"-",
 				function()
 					require("oil").open()
 				end,
 				desc = "Open parent directory",
+			},
+		},
+	},
+
+	-- 5.5. エクスプローラー (VSCode の左サイドバー相当)
+	{
+		"nvim-neo-tree/neo-tree.nvim",
+		branch = "v3.x",
+		dependencies = {
+			"nvim-lua/plenary.nvim",
+			"nvim-tree/nvim-web-devicons",
+			"MunifTanjim/nui.nvim",
+		},
+		cmd = "Neotree",
+		keys = {
+			-- <Space> + e で左ペインのツリーをトグル (開くときは現在ファイルの位置を展開)
+			{ "<leader>e", "<cmd>Neotree toggle reveal left<CR>", desc = "Explorer (toggle)" },
+		},
+		opts = {
+			close_if_last_window = true, -- ツリーだけ残ったら nvim ごと閉じる
+			filesystem = {
+				follow_current_file = { enabled = true }, -- 開いているファイルをツリー上で追跡
+				use_libuv_file_watcher = true, -- 外部変更 (Claude Code 等) を自動反映
+				filtered_items = {
+					visible = true, -- ドットファイル等も薄い色で表示 (完全に隠さない)
+					hide_dotfiles = false,
+					hide_gitignored = true,
+				},
+				hijack_netrw_behavior = "disabled", -- ディレクトリ指定の起動は oil に任せる
+			},
+			window = { width = 32 },
+			default_component_configs = {
+				git_status = {
+					symbols = {
+						-- VSCode のエクスプローラーと同じく 1 文字ステータス
+						added = "A",
+						modified = "M",
+						deleted = "D",
+						renamed = "R",
+						untracked = "U",
+						ignored = "",
+						unstaged = "",
+						staged = "",
+						conflict = "!",
+					},
+				},
+			},
+		},
+	},
+
+	-- 5.6. バッファをタブ表示 (VSCode のエディタタブ相当)
+	{
+		"akinsho/bufferline.nvim",
+		version = "*",
+		dependencies = { "nvim-tree/nvim-web-devicons" },
+		event = "VeryLazy",
+		keys = {
+			{ "<S-l>", "<cmd>BufferLineCycleNext<CR>", desc = "Next buffer tab" },
+			{ "<S-h>", "<cmd>BufferLineCyclePrev<CR>", desc = "Prev buffer tab" },
+			{ "<leader>bd", "<cmd>bdelete<CR>", desc = "Close buffer" },
+			{ "<leader>bo", "<cmd>BufferLineCloseOthers<CR>", desc = "Close other buffers" },
+			{ "<leader>bp", "<cmd>BufferLineTogglePin<CR>", desc = "Pin buffer" },
+		},
+		opts = {
+			options = {
+				separator_style = "thin",
+				show_close_icon = false,
+				diagnostics = "nvim_lsp", -- タブ上にエラー/警告数を表示 (VSCode 風)
+				-- neo-tree が開いている間はタブバーをその分右にずらす
+				offsets = {
+					{ filetype = "neo-tree", text = "EXPLORER", text_align = "left", separator = true },
+				},
 			},
 		},
 	},
