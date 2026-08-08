@@ -53,6 +53,9 @@ return {
 		{ key = "{", mods = "LEADER", action = act({ MoveTabRelative = -1 }) },
 		-- Tab新規作成
 		{ key = "t", mods = "SUPER", action = act({ SpawnTab = "CurrentPaneDomain" }) },
+		-- ウィンドウ新規作成 (aerospace で別画面/ワークスペースに wezterm を並べる用)
+		-- disable_default_key_bindings = true でデフォルトの Cmd+N が消えているため明示定義
+		{ key = "n", mods = "SUPER", action = act.SpawnWindow },
 		-- Tabを閉じる
 		{ key = "w", mods = "SUPER", action = act({ CloseCurrentTab = { confirm = true } }) },
 		{ key = "}", mods = "LEADER", action = act({ MoveTabRelative = 1 }) },
