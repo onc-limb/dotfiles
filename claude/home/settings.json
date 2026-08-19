@@ -94,8 +94,8 @@
             "type": "command",
             "command": "bash /Users/satoshi-onga/Documents/onclimb-industries/.claude/skills/jarvis-worklog/bin/hook_nightly.sh",
             "timeout": 30,
-            "async": true,
-            "statusMessage": "worklog: nightly catch-up check"
+            "statusMessage": "worklog: nightly catch-up check",
+            "async": true
           }
         ]
       }
@@ -132,5 +132,33 @@
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false
+  "voiceEnabled": false,
+  "autoMode": {
+    "environment": [
+      "### Org-wide",
+      "**Organization**: None configured — this repo (onclimb-industries) is a personal/hobby project, not org-owned",
+      "**Cloud provider(s)**: None configured",
+      "**Repository visibility**: PUBLIC — github.com:onc-limb/onclimb-industries.git (confirmed via gh; no rulesets or protected branches listed)",
+      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
+      "**Secrets management**: None configured",
+      "**Default / protected branches**: main (default); no branch protection rules or rulesets listed via gh",
+      "**CI/CD deploy targets**: None configured",
+      "**Network posture**: None configured",
+      "**Source control**: The trusted repo and its remote (github.com:onc-limb/onclimb-industries.git) only — no additional orgs configured",
+      "**Trusted internal domains**: None configured",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: None configured",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: any file or store holding personal data, confidential business data, credentials, regulated data, or similarly sensitive material; preserve exact handles when known and share only with audiences cleared at the [named+specifics] bar. Note: security/02-secret-management.md exists in this repo as project security documentation",
+      "**Data retention / declassification**: None configured",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment (hyphen/underscore/dot-delimited)",
+      "**Protected deployment namespaces / environments**: None configured — fall back to the Sensitive remote targets heuristic",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development — personal Claude Code skills/agents management repository (onclimb-industries), used for IT engineering work (coding, review, shared docs, research); private/personal-life work is kept in a separate repo (onclimb-cabin) per this repo's own README",
+      "**Trusted repo**: /Users/satoshi-onga/Documents/onclimb-industries (working directory) and its remote github.com:onc-limb/onclimb-industries.git. Repo is PUBLIC — only this repo's own work belongs here; ported/repointed content from elsewhere is not its own work. Secrets and sensitive personal/entrusted data are never cleared into it regardless of visibility",
+      "**Org-specific CLIs**: None configured — CLAUDE.md references project-internal tooling (todo.py, worklog record.py) invoked via `python3 .claude/skills/...`, not org-wide CLIs",
+      "routine under projects/ prefix: this repo's CLAUDE.md documents projects/ as a workspace for cloned external project repos (git-ignored) and projects/iron-legion/ as a private sub-repo used for autonomous workflows — treat as this repo's own convention, not corroborated org policy"
+    ]
+  }
 }
