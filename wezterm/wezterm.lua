@@ -129,7 +129,7 @@ wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_wid
 		foreground = "#FFFFFF"
 	end
 	local edge_foreground = background
-	-- タブ名が明示的に設定されていればそれを優先 (LEADER+A の Herdr プロジェクトタブなど)。
+	-- タブ名が明示的に設定されていればそれを優先 (LEADER+n の Herdr プロジェクトタブなど)。
 	-- 未設定ならアクティブペインのタイトル (Claude Code のセッション名など)
 	local name = tab.tab_title
 	if not name or name == "" then

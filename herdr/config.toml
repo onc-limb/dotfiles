@@ -2,12 +2,12 @@
 # https://herdr.dev/docs/configuration/
 #
 # 使い方: WezTerm のタブ = プロジェクト。各タブで `herdr session attach <プロジェクト名>` を起動し
-# (WezTerm の LEADER + A)、その中の左サイドバーにエージェント (Claude Code / Codex) を縦に並べる。
+# (WezTerm の LEADER + n)、その中の左サイドバーにエージェント (Claude Code / Codex) を縦に並べる。
 # Herdr のワークスペース 1 つ = エージェント 1 セッション。名前は作業タイトルにする (prefix + Shift + W)。
 # 既定値の一覧は `herdr --default-config`、変更後の反映は `herdr server reload-config`。
 
 [terminal]
-# 新しいペイン / タブ / ワークスペースは Herdr を起動したディレクトリ (= LEADER + A を押した
+# 新しいペイン / タブ / ワークスペースは Herdr を起動したディレクトリ (= LEADER + n を押した
 # プロジェクトのルート) で開く。ペインごとの cwd を引き継ぎたい場合は "follow"
 new_cwd = "current"
 
@@ -34,7 +34,7 @@ tab_bar_position = "top"
 prompt_new_workspace_name = true
 # エージェントの状態を記号で表示 (🔴 入力待ち / 🟡 作業中 / 🔵 完了・未確認 / 🟢 完了・確認済み)
 status_indicators = "symbols"
-# 外側のターミナル (WezTerm) に渡すタイトル。WezTerm のタブ名は LEADER + A で固定するため最小限にする
+# 外側のターミナル (WezTerm) に渡すタイトル。WezTerm のタブ名は LEADER + n で固定するため最小限にする
 window_title = "{workspace}"
 
 [ui.sidebar.agents]

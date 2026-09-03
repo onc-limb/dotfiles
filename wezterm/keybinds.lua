@@ -173,12 +173,12 @@ return {
 		-- Herdr のエージェント切り替え (prefix なし): Cmd+j で次、Cmd+k で前
 		{ key = "j", mods = "SUPER", action = herdr_prefixed("j") },
 		{ key = "k", mods = "SUPER", action = herdr_prefixed("k") },
-		-- プロジェクト用のタブを開いて Herdr を起動 leader + A
+		-- プロジェクト用のタブを開いて Herdr を起動 leader + n
 		-- タブ名 = プロジェクト名 (Herdr の名前付きセッション名) として固定し、
 		-- その中の左サイドバーに Claude Code / Codex のセッションを縦に並べる
 		{
-			key = "A",
-			mods = "LEADER|SHIFT",
+			key = "n",
+			mods = "LEADER",
 			action = act.PromptInputLine({
 				description = "(herdr) Project / session name:",
 				action = wezterm.action_callback(function(window, pane, line)
