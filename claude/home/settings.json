@@ -86,7 +86,7 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "claude-fable-5[1m]",
+  "model": "claude-fable-5-1[1m]",
   "hooks": {
     "SessionStart": [
       {
@@ -99,6 +99,16 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/Users/satoshi-onga/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -106,7 +116,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/satoshi-onga/Documents/onclimb-industries/.claude/skills/jarvis-worklog/bin/collect.sh >> /Users/satoshi-onga/Documents/onclimb-industries/worklog-data/logs/collect-hook.log 2>&1",
+            "command": "bash /Users/satoshi-onga/Documents/onclimb-industries/.claude/skills/jarvis-worklog/bin/collect.sh >> /Users/satoshi-onga/Documents/onclimb-industries/data/worklog/logs/collect-hook.log 2>&1",
             "timeout": 120,
             "statusMessage": "worklog: collecting session logs"
           }
@@ -121,7 +131,17 @@
   "enabledPlugins": {
     "swift-lsp@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
-    "rust-analyzer-lsp@claude-plugins-official": true
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "codex@openai-codex": true,
+    "stripe@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "openai-codex": {
+      "source": {
+        "source": "github",
+        "repo": "openai/codex-plugin-cc"
+      }
+    }
   },
   "language": "japanese",
   "effortLevel": "high",
@@ -132,8 +152,8 @@
   },
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
+  "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false,
   "autoMode": {
     "environment": [
       "### Org-wide",
@@ -161,5 +181,6 @@
       "**Org-specific CLIs**: None configured — CLAUDE.md references project-internal tooling (todo.py, worklog record.py) invoked via `python3 .claude/skills/...`, not org-wide CLIs",
       "routine under projects/ prefix: this repo's CLAUDE.md documents projects/ as a workspace for cloned external project repos (git-ignored) and projects/iron-legion/ as a private sub-repo used for autonomous workflows — treat as this repo's own convention, not corroborated org policy"
     ]
-  }
+  },
+  "voiceEnabled": false
 }
