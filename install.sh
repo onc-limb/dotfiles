@@ -62,6 +62,7 @@ main() {
     create_link "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
     create_link "$DOTFILES_DIR/wezterm" "$HOME/.config/wezterm"
     create_link "$DOTFILES_DIR/yazi" "$HOME/.config/yazi"
+    create_link "$DOTFILES_DIR/herdr" "$HOME/.config/herdr"
     create_link "$DOTFILES_DIR/starship.toml" "$HOME/.config/starship.toml"
 
     # Claude Code configuration (selective symlinks to ~/.claude/)

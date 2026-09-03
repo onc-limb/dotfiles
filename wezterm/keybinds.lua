@@ -7,10 +7,11 @@ local IM_ROMAN = "com.apple.inputmethod.Kotoeri.RomajiTyping.Roman"
 
 -- Claude Code のトランスクリプトモード (Ctrl+O) に入るとき、入力ソースを英数にする。
 -- 日本語入力のままだと j / k などのキーが効かないため。Claude Code 以外のペインでは素通しする。
+-- Herdr 越しに Claude Code を動かしている場合は前面プロセスが herdr になるので、それも対象にする。
 -- Ctrl+O はトグルなので抜けるときも英数になる (日本語で指示を打つときは手動で切り替える)
 local function claude_transcript_toggle(window, pane)
 	local proc = pane:get_foreground_process_name() or ""
-	if proc:find("claude", 1, true) then
+	if proc:find("claude", 1, true) or proc:find("herdr", 1, true) then
 		wezterm.run_child_process({ IM_SELECT, IM_ROMAN })
 	end
 	window:perform_action(act.SendKey({ key = "o", mods = "CTRL" }), pane)
@@ -150,6 +151,29 @@ return {
 		{ key = "e", mods = "LEADER", action = wezterm.action_callback(open_editor_pane) },
 		-- Claude Code のトランスクリプトモード切替。入力ソースを英数にしてから Ctrl+O を送る
 		{ key = "o", mods = "CTRL", action = wezterm.action_callback(claude_transcript_toggle) },
+		-- プロジェクト用のタブを開いて Herdr を起動 leader + A
+		-- タブ名 = プロジェクト名 (Herdr の名前付きセッション名) として固定し、
+		-- その中の左サイドバーに Claude Code / Codex のセッションを縦に並べる
+		{
+			key = "A",
+			mods = "LEADER|SHIFT",
+			action = act.PromptInputLine({
+				description = "(herdr) Project / session name:",
+				action = wezterm.action_callback(function(window, pane, line)
+					if not line or line == "" then
+						return
+					end
+					local cwd = pane:get_current_working_dir()
+					local tab, new_pane = window:mux_window():spawn_tab({
+						cwd = cwd and cwd.file_path or nil,
+						-- ログインシェル経由で起動して PATH (~/.local/bin, homebrew) を引き継ぐ
+						args = { "/bin/zsh", "-lic", "exec herdr session attach " .. line },
+					})
+					tab:set_title(line)
+					new_pane:activate()
+				end),
+			}),
+		},
 		-- Paneを閉じる leader + x
 		{ key = "x", mods = "LEADER", action = act({ CloseCurrentPane = { confirm = true } }) },
 		-- Pane移動 leader + hlkj

@@ -129,7 +129,13 @@ wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_wid
 		foreground = "#FFFFFF"
 	end
 	local edge_foreground = background
-	local title = "   " .. wezterm.truncate_right(tab.active_pane.title, max_width - 1) .. "   "
+	-- タブ名が明示的に設定されていればそれを優先 (LEADER+A の Herdr プロジェクトタブなど)。
+	-- 未設定ならアクティブペインのタイトル (Claude Code のセッション名など)
+	local name = tab.tab_title
+	if not name or name == "" then
+		name = tab.active_pane.title
+	end
+	local title = "   " .. wezterm.truncate_right(name, max_width - 1) .. "   "
 	return {
 		{ Background = { Color = edge_background } },
 		{ Foreground = { Color = edge_foreground } },

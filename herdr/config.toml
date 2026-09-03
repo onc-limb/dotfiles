@@ -1,0 +1,46 @@
+# Herdr (AI エージェント用ターミナルマルチプレクサ) の設定
+# https://herdr.dev/docs/configuration/
+#
+# 使い方: WezTerm のタブ = プロジェクト。各タブで `herdr session attach <プロジェクト名>` を起動し
+# (WezTerm の LEADER + A)、その中の左サイドバーにエージェント (Claude Code / Codex) を縦に並べる。
+# Herdr のワークスペース 1 つ = エージェント 1 セッション。名前は作業タイトルにする (prefix + Shift + W)。
+# 既定値の一覧は `herdr --default-config`、変更後の反映は `herdr server reload-config`。
+
+[terminal]
+# 新しいペイン / タブ / ワークスペースは Herdr を起動したディレクトリ (= LEADER + A を押した
+# プロジェクトのルート) で開く。ペインごとの cwd を引き継ぎたい場合は "follow"
+new_cwd = "current"
+
+[keys]
+# WezTerm の LEADER (ctrl+q) と衝突しないよう既定の ctrl+b のまま。
+# ペイン移動は既定の prefix + h/j/k/l (WezTerm の LEADER + h/j/k/l と同じ感覚)
+prefix = "ctrl+b"
+# サイドバーのエージェント行 (= 左の縦タブ) を上下に移動
+next_agent = "prefix+shift+j"
+previous_agent = "prefix+shift+k"
+# ワークスペースを番号で直接切り替え (prefix + 1..9 は既定どおりタブ切り替え)
+switch_workspace = "prefix+shift+1..9"
+# サイドバーの表示切替 (既定値を明示)
+toggle_sidebar = "prefix+b"
+
+[ui]
+tab_bar_position = "top"
+# ワークスペース作成時に名前 (= 作業タイトル) を聞く
+prompt_new_workspace_name = true
+# エージェントの状態を記号で表示 (🔴 入力待ち / 🟡 作業中 / 🔵 完了・未確認 / 🟢 完了・確認済み)
+status_indicators = "symbols"
+# 外側のターミナル (WezTerm) に渡すタイトル。WezTerm のタブ名は LEADER + A で固定するため最小限にする
+window_title = "{workspace}"
+
+[ui.sidebar.agents]
+# 1 行目: 状態アイコン + 作業タイトル (ワークスペース名)
+# 2 行目: 状態のテキスト + エージェント名 (claude / codex)
+rows = [["state_icon", "workspace"], ["state_text", "agent"]]
+row_gap = 1
+
+[experimental]
+# macOS: prefix を押した時点で入力ソースを英数に切り替える (日本語入力のまま操作キーを押す事故の対策)
+switch_ascii_input_source_in_prefix = true
+# 日本語 IME 利用時にエージェントのカーソルが隠れる問題の回避
+reveal_hidden_cursor_for_cjk_ime = true
+cjk_ime_agents = ["claude", "codex"]
