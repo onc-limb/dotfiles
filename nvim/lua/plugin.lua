@@ -6,9 +6,9 @@ return {
 		config = function()
 			require("vscode").setup({
 				-- vim.o.background (init.lua で light 指定) に追従して Light テーマになる
-				-- 透過はしない: wezterm のグラデーション背景が透けるとコントラストが崩れるため、
-				-- VSCode と同じ不透過のエディタ背景 #FFFFFF をそのまま使う
-				transparent = false,
+				-- 背景は描画せず wezterm の背景 (透過 + 壁紙) をそのまま見せる。
+				-- シェル / Claude Code のペインと見た目を揃えるため
+				transparent = true,
 				italic_comments = true,
 			})
 			vim.cmd("colorscheme vscode")
