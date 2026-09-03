@@ -1,6 +1,56 @@
 local wezterm = require("wezterm")
 local act = wezterm.action
 
+-- LEADER+e で開いた nvim ペインをタブごとに記録する (tab_id -> pane_id)。
+-- 何度押しても新しいペインを増やさず、既にあればそのペインに戻ってズームし直す
+local editor_panes = {}
+
+-- 今いるペインの cwd で nvim をズーム表示する。
+-- Claude Code / Codex のセッションを閉じずに .env の編集やディレクトリ確認をするため。
+-- 右に分割して即ズーム (全面表示) し、左に neo-tree のディレクトリツリーを出した状態で起動する。
+-- nvim を :xa などで終了すると元のペインにフォーカスを戻してからペインが閉じ、元の画面に戻る
+local function open_editor_pane(window, pane)
+	local tab = window:active_tab()
+	local tab_id = tab:tab_id()
+
+	-- このタブに LEADER+e の nvim ペインが残っていればそれを使う
+	local existing_id = editor_panes[tab_id]
+	if existing_id then
+		for _, p in ipairs(tab:panes()) do
+			if p:pane_id() == existing_id then
+				if pane:pane_id() ~= existing_id then
+					p:activate()
+				end
+				window:perform_action(act.SetPaneZoomState(true), p)
+				return
+			end
+		end
+		-- 記録はあるがペインは閉じられている
+		editor_panes[tab_id] = nil
+	end
+
+	local cwd = pane:get_current_working_dir()
+	local origin_pane_id = pane:pane_id()
+	local new_pane = pane:split({
+		direction = "Right",
+		cwd = cwd and cwd.file_path or nil,
+		-- ログインシェル経由で起動して PATH (homebrew / mise) を引き継ぐ。
+		-- g:start_with_explorer は nvim 側 (plugin.lua の oil 設定) で見て neo-tree を左に開く。
+		-- nvim 終了後に元のペインへフォーカスを戻し、シェルが終わってペインが閉じる
+		args = {
+			"/bin/zsh",
+			"-lic",
+			string.format(
+				"nvim --cmd 'let g:start_with_explorer = 1'; wezterm cli activate-pane --pane-id %d",
+				origin_pane_id
+			),
+		},
+	})
+	editor_panes[tab_id] = new_pane:pane_id()
+	new_pane:activate()
+	window:perform_action(act.SetPaneZoomState(true), new_pane)
+end
+
 return {
 	keys = {
 		{
@@ -81,6 +131,8 @@ return {
 		-- Pane作成 leader + r or d
 		{ key = "d", mods = "LEADER", action = act.SplitVertical({ domain = "CurrentPaneDomain" }) },
 		{ key = "r", mods = "LEADER", action = act.SplitHorizontal({ domain = "CurrentPaneDomain" }) },
+		-- 今いるペインの cwd で nvim をズーム表示 leader + e (詳細は上の open_editor_pane)
+		{ key = "e", mods = "LEADER", action = wezterm.action_callback(open_editor_pane) },
 		-- Paneを閉じる leader + x
 		{ key = "x", mods = "LEADER", action = act({ CloseCurrentPane = { confirm = true } }) },
 		-- Pane移動 leader + hlkj

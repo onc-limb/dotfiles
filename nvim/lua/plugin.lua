@@ -224,11 +224,17 @@ return {
 		},
 		config = function(_, opts)
 			require("oil").setup(opts)
-			-- 引数なしで nvim を起動した時もカレントディレクトリの oil 表示から始める
+			-- 引数なしで nvim を起動した時もカレントディレクトリの oil 表示から始める。
+			-- wezterm の LEADER+e (--cmd 'let g:start_with_explorer = 1') からの起動時は
+			-- oil ではなく neo-tree を左に開き、VSCode のようにツリーからファイルを選ぶ
 			vim.api.nvim_create_autocmd("VimEnter", {
 				callback = function()
 					if vim.fn.argc() == 0 and vim.api.nvim_buf_get_name(0) == "" then
-						require("oil").open()
+						if vim.g.start_with_explorer == 1 then
+							vim.cmd("Neotree left")
+						else
+							require("oil").open()
+						end
 					end
 				end,
 			})
@@ -257,8 +263,29 @@ return {
 		},
 		cmd = "Neotree",
 		keys = {
-			-- <Space> + e で左ペインのツリーをトグル (開くときは現在ファイルの位置を展開)
-			{ "<leader>e", "<cmd>Neotree toggle reveal left<CR>", desc = "Explorer (toggle)" },
+			-- <Space> + e: メイン側で押すとツリーにフォーカス (閉じていれば開き、現在ファイルの位置を展開)、
+			-- ツリー上で押すとツリーを閉じる。キーボードだけでメインとツリーを往復するため
+			{
+				"<leader>e",
+				function()
+					if vim.bo.filetype == "neo-tree" then
+						vim.cmd("Neotree close")
+						return
+					end
+					-- 実ファイルを開いているときだけ reveal する。
+					-- follow_current_file が有効だと :Neotree focus でも reveal が暗黙に有効になり、
+					-- oil:// のような実在しないパスだと「ルートを変更しますか (y/n)」のポップアップが出る。
+					-- そのため oil や空バッファでは reveal = false を明示して focus だけにする
+					local name = vim.api.nvim_buf_get_name(0)
+					local is_real_file = vim.bo.buftype == "" and name ~= "" and vim.fn.filereadable(name) == 1
+					require("neo-tree.command").execute({
+						action = "focus",
+						position = "left",
+						reveal = is_real_file,
+					})
+				end,
+				desc = "Explorer (focus / close)",
+			},
 		},
 		opts = {
 			close_if_last_window = true, -- ツリーだけ残ったら nvim ごと閉じる
@@ -271,6 +298,47 @@ return {
 					hide_gitignored = true,
 				},
 				hijack_netrw_behavior = "disabled", -- ディレクトリ指定の起動は oil に任せる
+				commands = {
+					-- カーソル下のフォルダ (ファイルなら親フォルダ) を右のメインウィンドウの oil で開く。
+					-- ツリーで場所を選び、oil でファイルの作成・削除・リネームをテキスト編集する流れ用
+					open_in_oil = function(state)
+						local node = state.tree:get_node()
+						if not node then
+							return
+						end
+						local path = node:get_id()
+						if node.type ~= "directory" then
+							path = vim.fn.fnamemodify(path, ":h")
+						end
+						-- ツリー以外の通常ウィンドウ (直前にいたウィンドウを優先) を探して移動する
+						local target = vim.fn.win_getid(vim.fn.winnr("#"))
+						local function is_main(win)
+							return win ~= 0
+								and vim.api.nvim_win_is_valid(win)
+								and vim.api.nvim_win_get_config(win).relative == ""
+								and vim.bo[vim.api.nvim_win_get_buf(win)].filetype ~= "neo-tree"
+						end
+						if not is_main(target) then
+							target = nil
+							for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+								if is_main(win) then
+									target = win
+									break
+								end
+							end
+						end
+						if not target then
+							return
+						end
+						vim.api.nvim_set_current_win(target)
+						require("oil").open(path)
+					end,
+				},
+				window = {
+					mappings = {
+						["-"] = "open_in_oil",
+					},
+				},
 			},
 			window = { width = 32 },
 			default_component_configs = {
