@@ -17,6 +17,25 @@ local function claude_transcript_toggle(window, pane)
 	window:perform_action(act.SendKey({ key = "o", mods = "CTRL" }), pane)
 end
 
+-- Herdr のペインでは prefix (Ctrl+b) + key を代わりに送る。それ以外のペインでは何もしない
+-- (Cmd+文字はもともとターミナルへは届かないため)。
+-- Cmd+j / Cmd+k でエージェント (サイドバーの行) を prefix なしで切り替えるために使う
+local function herdr_prefixed(key)
+	return wezterm.action_callback(function(window, pane)
+		local proc = pane:get_foreground_process_name() or ""
+		if not proc:find("herdr", 1, true) then
+			return
+		end
+		window:perform_action(
+			act.Multiple({
+				act.SendKey({ key = "b", mods = "CTRL" }),
+				act.SendKey({ key = key }),
+			}),
+			pane
+		)
+	end)
+end
+
 -- LEADER+e で開いた nvim ペインをタブごとに記録する (tab_id -> pane_id)。
 -- 何度押しても新しいペインを増やさず、既にあればそのペインに戻ってズームし直す
 local editor_panes = {}
@@ -151,6 +170,9 @@ return {
 		{ key = "e", mods = "LEADER", action = wezterm.action_callback(open_editor_pane) },
 		-- Claude Code のトランスクリプトモード切替。入力ソースを英数にしてから Ctrl+O を送る
 		{ key = "o", mods = "CTRL", action = wezterm.action_callback(claude_transcript_toggle) },
+		-- Herdr のエージェント切り替え (prefix なし): Cmd+j で次、Cmd+k で前
+		{ key = "j", mods = "SUPER", action = herdr_prefixed("j") },
+		{ key = "k", mods = "SUPER", action = herdr_prefixed("k") },
 		-- プロジェクト用のタブを開いて Herdr を起動 leader + A
 		-- タブ名 = プロジェクト名 (Herdr の名前付きセッション名) として固定し、
 		-- その中の左サイドバーに Claude Code / Codex のセッションを縦に並べる
