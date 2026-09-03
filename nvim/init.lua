@@ -68,6 +68,40 @@ vim.keymap.set("n", "gl", "g_", { desc = "Go to line end" })
 vim.keymap.set("n", "<Esc>", "<cmd>nohlsearch<CR>")
 
 -- =========================
+-- レビュー / 参照用の移動とコピー
+-- =========================
+-- 直前に開いていたバッファと行き来する (定義へ飛んだ後に戻る、2 ファイルを見比べる用)
+vim.keymap.set("n", "<leader><leader>", "<C-^>", { desc = "Alternate buffer" })
+
+-- 現在位置を `path:line` (cwd からの相対パス) でクリップボードにコピー
+-- Claude Code / Codex への指示に「この箇所」を貼り付けるため。ビジュアル選択中は `path:start-end`
+local function yank_location(with_line)
+	local path = vim.fn.expand("%:.")
+	local loc = path
+	if with_line then
+		local mode = vim.fn.mode()
+		if mode == "v" or mode == "V" then
+			local s, e = vim.fn.line("v"), vim.fn.line(".")
+			if s > e then
+				s, e = e, s
+			end
+			loc = string.format("%s:%d-%d", path, s, e)
+			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+		else
+			loc = string.format("%s:%d", path, vim.fn.line("."))
+		end
+	end
+	vim.fn.setreg("+", loc)
+	vim.notify("Copied: " .. loc)
+end
+vim.keymap.set({ "n", "v" }, "<leader>yl", function()
+	yank_location(true)
+end, { desc = "Yank path:line" })
+vim.keymap.set("n", "<leader>yp", function()
+	yank_location(false)
+end, { desc = "Yank relative path" })
+
+-- =========================
 -- lazy.nvim bootstrap
 -- =========================
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"

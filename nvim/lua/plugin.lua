@@ -75,6 +75,12 @@ return {
 					-- (Telescopeを入れているなら Telescope lsp_references の方が見やすいです)
 					vim.keymap.set("n", "gr", fzf.lsp_references, opts)
 
+					-- 3.1. 実装へジャンプ (interface / 抽象メソッドから実体へ) -> 'gI'
+					vim.keymap.set("n", "gI", fzf.lsp_implementations, opts)
+
+					-- 3.2. 型定義へジャンプ (変数からその型の定義へ) -> 'gy'
+					vim.keymap.set("n", "gy", fzf.lsp_typedefs, opts)
+
 					-- 4. エラー内容の確認（フロート表示） -> <Space> + l
 					vim.keymap.set("n", "<leader>d", vim.diagnostic.open_float, opts)
 
@@ -86,6 +92,9 @@ return {
 
 					-- ファイル内の関数や変数を検索してジャンプ (<Space> + s)
 					vim.keymap.set("n", "<leader>s", fzf.lsp_document_symbols, opts)
+
+					-- プロジェクト全体の関数や型を名前で検索してジャンプ (<Space> + S)
+					vim.keymap.set("n", "<leader>S", fzf.lsp_live_workspace_symbols, opts)
 				end,
 			})
 
@@ -448,6 +457,31 @@ return {
 					require("fzf-lua").diagnostics_workspace()
 				end,
 				desc = "Fzf Workspace Diagnostics",
+			},
+			-- 現在のファイルだけの診断一覧 (<leader>x のファイル版)
+			{
+				"<leader>X",
+				function()
+					require("fzf-lua").diagnostics_document()
+				end,
+				desc = "Fzf Document Diagnostics",
+			},
+			-- カーソル下の単語 / 選択範囲をプロジェクト全体から検索
+			-- (レビュー中に「この関数はどこで使われている?」を LSP なしでも引ける)
+			{
+				"<leader>*",
+				function()
+					require("fzf-lua").grep_cword()
+				end,
+				desc = "Fzf Grep word under cursor",
+			},
+			{
+				"<leader>*",
+				function()
+					require("fzf-lua").grep_visual()
+				end,
+				mode = "v",
+				desc = "Fzf Grep selection",
 			},
 		},
 	},
