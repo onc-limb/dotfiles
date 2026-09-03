@@ -36,6 +36,7 @@ cd ~/dotfiles
 | `wezterm/` | `~/.config/wezterm` |
 | `starship.toml` | `~/.config/starship.toml` |
 | `claude/home/settings.json` | `~/.claude/settings.json` |
+| `claude/home/keybindings.json` | `~/.claude/keybindings.json` |
 | `claude/home/CLAUDE.md` | `~/.claude/CLAUDE.md` |
 
 ### 3. Claude テンプレートの配置（任意）

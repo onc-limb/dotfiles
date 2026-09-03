@@ -1,6 +1,21 @@
 local wezterm = require("wezterm")
 local act = wezterm.action
 
+-- macOS の入力ソース切り替え (im-select)。GUI アプリの wezterm は PATH が通っていないためフルパス指定
+local IM_SELECT = wezterm.home_dir .. "/.local/bin/im-select"
+local IM_ROMAN = "com.apple.inputmethod.Kotoeri.RomajiTyping.Roman"
+
+-- Claude Code のトランスクリプトモード (Ctrl+O) に入るとき、入力ソースを英数にする。
+-- 日本語入力のままだと j / k などのキーが効かないため。Claude Code 以外のペインでは素通しする。
+-- Ctrl+O はトグルなので抜けるときも英数になる (日本語で指示を打つときは手動で切り替える)
+local function claude_transcript_toggle(window, pane)
+	local proc = pane:get_foreground_process_name() or ""
+	if proc:find("claude", 1, true) then
+		wezterm.run_child_process({ IM_SELECT, IM_ROMAN })
+	end
+	window:perform_action(act.SendKey({ key = "o", mods = "CTRL" }), pane)
+end
+
 -- LEADER+e で開いた nvim ペインをタブごとに記録する (tab_id -> pane_id)。
 -- 何度押しても新しいペインを増やさず、既にあればそのペインに戻ってズームし直す
 local editor_panes = {}
@@ -133,6 +148,8 @@ return {
 		{ key = "r", mods = "LEADER", action = act.SplitHorizontal({ domain = "CurrentPaneDomain" }) },
 		-- 今いるペインの cwd で nvim をズーム表示 leader + e (詳細は上の open_editor_pane)
 		{ key = "e", mods = "LEADER", action = wezterm.action_callback(open_editor_pane) },
+		-- Claude Code のトランスクリプトモード切替。入力ソースを英数にしてから Ctrl+O を送る
+		{ key = "o", mods = "CTRL", action = wezterm.action_callback(claude_transcript_toggle) },
 		-- Paneを閉じる leader + x
 		{ key = "x", mods = "LEADER", action = act({ CloseCurrentPane = { confirm = true } }) },
 		-- Pane移動 leader + hlkj

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://www.schemastore.org/claude-code-keybindings.json",
+  "$docs": "https://code.claude.com/docs/en/keybindings",
+  "bindings": [
+    {
+      "context": "Transcript",
+      "bindings": {
+        "g": null,
+        "g g": "scroll:top",
+        "ctrl+e": "scroll:lineDown",
+        "ctrl+y": "scroll:lineUp"
+      }
+    }
+  ]
+}
