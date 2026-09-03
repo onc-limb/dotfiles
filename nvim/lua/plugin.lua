@@ -715,6 +715,30 @@ return {
 	},
 
 	-----------------------------------------------------------
+	-- 4.5. im-select.nvim: ノーマルモードに戻ったら入力ソースを英数にする
+	--    (日本語入力のまま Esc して hjkl が効かない問題の対策。要 `brew install im-select`)
+	--    英数側は Apple 日本語 IM の英字モード。ABC レイアウトは有効化していないため
+	--    起動時の入力ソースの保存と終了時の復元は init.lua の autocmd で行う
+	-----------------------------------------------------------
+	{
+		"keaising/im-select.nvim",
+		lazy = false, -- VimEnter で切り替えるため起動時に読み込む
+		opts = {
+			default_im_select = "com.apple.inputmethod.Kotoeri.RomajiTyping.Roman",
+			default_command = "im-select",
+			-- 英数に切り替えるタイミング
+			set_default_events = { "VimEnter", "FocusGained", "InsertLeave", "CmdlineLeave" },
+			-- 直前の入力ソース (日本語など) に戻すタイミング
+			set_previous_events = { "InsertEnter" },
+			keep_quiet_on_no_binary = false,
+			async_switch_im = true,
+		},
+		config = function(_, opts)
+			require("im_select").setup(opts)
+		end,
+	},
+
+	-----------------------------------------------------------
 	-- 5. snacks.nvim (image): 画像ファイル・md 内の画像をターミナルに表示
 	--    wezterm の kitty graphics protocol を利用 (要 ImageMagick)
 	-----------------------------------------------------------

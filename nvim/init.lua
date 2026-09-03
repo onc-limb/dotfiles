@@ -102,6 +102,33 @@ vim.keymap.set("n", "<leader>yp", function()
 end, { desc = "Yank relative path" })
 
 -- =========================
+-- 入力ソース (IME) の保存と復元
+-- =========================
+-- im-select.nvim (plugin.lua) が VimEnter で英数に切り替えるため、その前に
+-- 起動時の入力ソースを控えておき、終了時に戻す。Claude Code のペインでは日本語入力の
+-- ままにしておきたいので、nvim を抜けたら日本語に戻るようにする。
+-- lazy.nvim より前に定義することで、この VimEnter が im-select.nvim のものより先に走る
+local im_select_bin = vim.fn.exepath("im-select")
+if im_select_bin ~= "" then
+	local im_on_enter = nil
+	vim.api.nvim_create_autocmd("VimEnter", {
+		callback = function()
+			local out = vim.fn.system({ im_select_bin })
+			if vim.v.shell_error == 0 then
+				im_on_enter = vim.trim(out)
+			end
+		end,
+	})
+	vim.api.nvim_create_autocmd("VimLeavePre", {
+		callback = function()
+			if im_on_enter and im_on_enter ~= "" then
+				vim.fn.system({ im_select_bin, im_on_enter })
+			end
+		end,
+	})
+end
+
+-- =========================
 -- lazy.nvim bootstrap
 -- =========================
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
