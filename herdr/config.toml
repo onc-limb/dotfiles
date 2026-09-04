@@ -13,11 +13,14 @@ new_cwd = "current"
 
 [keys]
 # WezTerm の LEADER (ctrl+q) と衝突しないよう既定の ctrl+b のまま。
-# よく使うエージェント切り替えは WezTerm 側の Cmd+j / Cmd+k が prefix+j / prefix+k を代わりに送る
+# よく使うスペース切り替えは WezTerm 側の Cmd+j / Cmd+k が prefix+j / prefix+k を代わりに送る
 prefix = "ctrl+b"
-# サイドバーのエージェント行 (= 左の縦タブ) を上下に移動
-next_agent = "prefix+j"
-previous_agent = "prefix+k"
+# スペース (ワークスペース = 左の縦タブ) を上下に移動。エージェントの有無に関係なく全スペースを巡る
+next_workspace = "prefix+j"
+previous_workspace = "prefix+k"
+# エージェントが動いている行だけを巡る (空のスペースは飛ばす)
+next_agent = "prefix+shift+j"
+previous_agent = "prefix+shift+k"
 # ペイン移動は j/k をエージェント移動に譲り、矢印キーにする (1 ワークスペース 1 エージェントなので使用頻度は低い)
 focus_pane_left = "prefix+left"
 focus_pane_down = "prefix+down"
