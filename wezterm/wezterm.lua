@@ -79,7 +79,7 @@ local SOLID_LEFT_ARROW = wezterm.nerdfonts.ple_left_half_circle_thick
 -- タブの右側の装飾
 local SOLID_RIGHT_ARROW = wezterm.nerdfonts.ple_right_half_circle_thick
 
--- 右上ステータス: ワークスペース名（黒いタブ風） + キーテーブル / leader 状態 + 時間帯絵文字 + 時刻
+-- 右上ステータス: ワークスペース名（アクティブタブと同じ青のタブ風） + キーテーブル / leader 状態 + 時間帯絵文字 + 時刻
 wezterm.on("update-right-status", function(window, pane)
 	local workspace = window:active_workspace()
 	local date = wezterm.strftime("%H:%M")
@@ -105,13 +105,13 @@ wezterm.on("update-right-status", function(window, pane)
 	end
 	window:set_left_status("")
 	window:set_right_status(wezterm.format({
-		{ Foreground = { Color = "#000000" } },
+		{ Foreground = { Color = "#005FB8" } },
 		{ Text = SOLID_LEFT_ARROW },
-		{ Background = { Color = "#000000" } },
+		{ Background = { Color = "#005FB8" } },
 		{ Foreground = { Color = "#FFFFFF" } },
 		{ Text = " " .. workspace .. " " },
 		"ResetAttributes",
-		{ Foreground = { Color = "#000000" } },
+		{ Foreground = { Color = "#005FB8" } },
 		{ Text = SOLID_RIGHT_ARROW .. " " },
 		{ Foreground = { Color = "#005FB8" } },
 		{ Text = mode },

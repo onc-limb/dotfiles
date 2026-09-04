@@ -6,6 +6,29 @@
 # Herdr のワークスペース 1 つ = エージェント 1 セッション。名前は作業タイトルにする (prefix + Shift + W)。
 # 既定値の一覧は `herdr --default-config`、変更後の反映は `herdr server reload-config`。
 
+[theme]
+# WezTerm の ANSI パレット (VSCode Light Modern) をそのまま使い、ライト基調で統一する
+name = "terminal"
+
+[theme.custom]
+# 背景を塗らず WezTerm の透過 (opacity 0.5 + blur) を通す
+panel_bg = "reset"
+# ASSUMPTION: sidebar_bg も reset を受け付ける前提 (効かなければこの行を削除して panel_bg に追従させる)
+sidebar_bg = "reset"
+# WezTerm のアクティブタブ / カーソルと同じ青をアクセントに
+accent = "#005FB8"
+# 選択中の Space / Agent 行: 黒ではなく淡い青のハイライト
+active_row_bg = "#D6E7FA"
+# Navigate モードのカーソル行 (WezTerm の selection_bg と同じ)
+selection_bg = "#ADD6FF"
+# 文字・補助色 (WezTerm の foreground / 非アクティブタブに合わせる)
+text = "#3B3B3B"
+subtext0 = "#616161"
+surface0 = "#ECECEC"
+surface1 = "#DDDDDD"
+overlay0 = "#8C8C8C"
+overlay1 = "#666666"
+
 [terminal]
 # 新しいペイン / タブ / ワークスペースは Herdr を起動したディレクトリ (= LEADER + n を押した
 # プロジェクトのルート) で開く。ペインごとの cwd を引き継ぎたい場合は "follow"
