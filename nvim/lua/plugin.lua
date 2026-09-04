@@ -698,6 +698,14 @@ return {
 				end),
 				{ desc = "Git file history (toggle)" }
 			)
+
+			-- g + p = GitHub PR review: gh pr list から fzf-lua で選択し、
+			-- worktree に展開してベースブランチとの差分を開く (詳細は lua/pr_review.lua)
+			-- レビュー中は diffview の開閉トグルになる
+			local pr_review = require("pr_review")
+			vim.keymap.set("n", "<Leader>gp", pr_review.start_or_toggle, { desc = "GitHub PR review (toggle)" })
+			-- g + P = PR review 終了: diffview を閉じ、gitsigns の base を戻し、worktree を削除 (確認あり)
+			vim.keymap.set("n", "<Leader>gP", pr_review.finish, { desc = "Finish GitHub PR review" })
 		end,
 	},
 
