@@ -36,54 +36,119 @@ local function herdr_prefixed(key)
 	end)
 end
 
--- LEADER+e で開いた nvim ペインをタブごとに記録する (tab_id -> pane_id)。
--- 何度押しても新しいペインを増やさず、既にあればそのペインに戻ってズームし直す
-local editor_panes = {}
+-- ペインの役割 (agent / editor / shell) をタブ内で管理する。
+-- WezTerm タブ = プロジェクトの中に、Herdr (agent)・nvim (editor)・自分用 zsh (shell) を
+-- 1 つずつ置き、役割ごとのキーで「そのペインへ移動してズーム」する。ペインが無ければその場で作る。
+-- 役割はペイン起動時にシェルから OSC 1337 SetUserVar で role=<役割> を書き込み、
+-- pane:get_user_vars().role で探す (Lua テーブルと違い設定の自動リロードで消えない)。
+local function set_role_cmd(role)
+	return string.format([[printf '\033]1337;SetUserVar=role=%%s\a' "$(printf %%s %s | base64)"]], role)
+end
 
--- 今いるペインの cwd で nvim をズーム表示する。
--- Claude Code / Codex のセッションを閉じずに .env の編集やディレクトリ確認をするため。
--- 右に分割して即ズーム (全面表示) し、左に neo-tree のディレクトリツリーを出した状態で起動する。
--- nvim を :xa などで終了すると元のペインにフォーカスを戻してからペインが閉じ、元の画面に戻る
-local function open_editor_pane(window, pane)
-	local tab = window:active_tab()
-	local tab_id = tab:tab_id()
-
-	-- このタブに LEADER+e の nvim ペインが残っていればそれを使う
-	local existing_id = editor_panes[tab_id]
-	if existing_id then
-		for _, p in ipairs(tab:panes()) do
-			if p:pane_id() == existing_id then
-				if pane:pane_id() ~= existing_id then
-					p:activate()
-				end
-				window:perform_action(act.SetPaneZoomState(true), p)
-				return
-			end
+-- タブ内で role のペインを探す。agent は古いタブ (role 未設定) でも見つかるよう
+-- Herdr の前面プロセス、それも無ければ role 未設定の最初のペインにフォールバックする
+local function find_role_pane(tab, role)
+	local panes = tab:panes()
+	for _, p in ipairs(panes) do
+		if p:get_user_vars().role == role then
+			return p
 		end
-		-- 記録はあるがペインは閉じられている
-		editor_panes[tab_id] = nil
+	end
+	if role ~= "agent" then
+		return nil
+	end
+	for _, p in ipairs(panes) do
+		local proc = p:get_foreground_process_name() or ""
+		if proc:find("herdr", 1, true) then
+			return p
+		end
+	end
+	-- ASSUMPTION: Herdr を使っていないタブでは、役割の付いていない最初のペインを agent 扱いにする
+	for _, p in ipairs(panes) do
+		if not p:get_user_vars().role then
+			return p
+		end
+	end
+	return panes[1]
+end
+
+-- editor / shell のペインを作る。最終的なレイアウトが
+--   左: agent / 右上: editor / 右下: shell
+-- になるよう、作る順番に関わらず分割元と方向を決める。
+-- ログインシェル経由で起動して PATH (homebrew / mise) を引き継ぐ。
+-- known には作ったばかりのペインを { editor = pane } / { shell = pane } の形で渡せる。
+-- 役割タグはペイン内のシェルが書き込むため、split 直後は find_role_pane で見つからない
+local function spawn_role_pane(window, tab, role, origin_pane, known)
+	known = known or {}
+	local agent = find_role_pane(tab, "agent")
+	local editor = known.editor or find_role_pane(tab, "editor")
+	local shell = known.shell or find_role_pane(tab, "shell")
+	-- cwd はプロジェクトルート (= Herdr を起動した agent ペインの cwd) に揃える
+	local cwd = (agent or origin_pane):get_current_working_dir()
+
+	local base, direction = agent, "Right"
+	if role == "editor" and shell then
+		base, direction = shell, "Top"
+	elseif role == "shell" and editor then
+		base, direction = editor, "Bottom"
 	end
 
-	local cwd = pane:get_current_working_dir()
-	local origin_pane_id = pane:pane_id()
-	local new_pane = pane:split({
-		direction = "Right",
-		cwd = cwd and cwd.file_path or nil,
-		-- ログインシェル経由で起動して PATH (homebrew / mise) を引き継ぐ。
+	local cmd
+	if role == "editor" then
 		-- g:start_with_explorer は nvim 側 (plugin.lua の oil 設定) で見て neo-tree を左に開く。
 		-- nvim 終了後に元のペインへフォーカスを戻し、シェルが終わってペインが閉じる
-		args = {
-			"/bin/zsh",
-			"-lic",
-			string.format(
-				"nvim --cmd 'let g:start_with_explorer = 1'; wezterm cli activate-pane --pane-id %d",
-				origin_pane_id
-			),
-		},
+		cmd = string.format(
+			"%s; nvim --cmd 'let g:start_with_explorer = 1'; wezterm cli activate-pane --pane-id %d",
+			set_role_cmd("editor"),
+			origin_pane:pane_id()
+		)
+	else
+		cmd = set_role_cmd("shell") .. "; exec /bin/zsh -l"
+	end
+
+	-- ズーム中に分割すると新しいペインが見えないので、分割前にズームを解除する
+	window:perform_action(act.SetPaneZoomState(false), base)
+	return base:split({
+		direction = direction,
+		size = 0.5,
+		cwd = cwd and cwd.file_path or nil,
+		args = { "/bin/zsh", "-lic", cmd },
 	})
-	editor_panes[tab_id] = new_pane:pane_id()
-	new_pane:activate()
-	window:perform_action(act.SetPaneZoomState(true), new_pane)
+end
+
+-- 指定ペインをズーム表示する。
+-- ズームはタブ単位の状態で、ズーム中に別ペインを activate してもズーム対象は変わらず、
+-- ズーム済みのタブに SetPaneZoomState(true) を送っても何も起きない。
+-- そのため一度解除してから対象を activate し、ズームし直す
+local function zoom_pane(window, target)
+	window:perform_action(act.SetPaneZoomState(false), target)
+	target:activate()
+	window:perform_action(act.SetPaneZoomState(true), target)
+end
+
+-- 役割のペインへ移動してズーム表示する (無ければ作る)
+local function focus_role(role)
+	return wezterm.action_callback(function(window, pane)
+		local tab = window:active_tab()
+		local target = find_role_pane(tab, role)
+		if not target then
+			target = spawn_role_pane(window, tab, role, pane)
+		end
+		zoom_pane(window, target)
+	end)
+end
+
+-- 固定レイアウト (左: agent / 右上: editor / 右下: shell) に展開する。
+-- 大きいモニターに繋いだときに 3 つを並べて見る用。足りないペインは作り、ズームは解除する。
+-- agent だけに戻すときは Cmd+a (agent をズーム)
+local function show_layout(window, pane)
+	local tab = window:active_tab()
+	local editor = find_role_pane(tab, "editor") or spawn_role_pane(window, tab, "editor", pane)
+	if not find_role_pane(tab, "shell") then
+		spawn_role_pane(window, tab, "shell", pane, { editor = editor })
+	end
+	window:perform_action(act.SetPaneZoomState(false), pane)
+	pane:activate()
 end
 
 return {
@@ -166,8 +231,15 @@ return {
 		-- Pane作成 leader + r or d
 		{ key = "d", mods = "LEADER", action = act.SplitVertical({ domain = "CurrentPaneDomain" }) },
 		{ key = "r", mods = "LEADER", action = act.SplitHorizontal({ domain = "CurrentPaneDomain" }) },
-		-- 今いるペインの cwd で nvim をズーム表示 leader + e (詳細は上の open_editor_pane)
-		{ key = "e", mods = "LEADER", action = wezterm.action_callback(open_editor_pane) },
+		-- 役割ペインへ移動してズーム (無ければ作る)。Cmd+文字はターミナルへ届かないので prefix 不要
+		-- Cmd+a: Herdr (agent) / Cmd+e: nvim (editor) / Cmd+s: 自分用シェル (shell)
+		{ key = "a", mods = "SUPER", action = focus_role("agent") },
+		{ key = "e", mods = "SUPER", action = focus_role("editor") },
+		{ key = "s", mods = "SUPER", action = focus_role("shell") },
+		-- 従来の leader + e も editor として残す
+		{ key = "e", mods = "LEADER", action = focus_role("editor") },
+		-- 固定レイアウト (左 agent / 右上 editor / 右下 shell) に展開。大きいモニター向け。戻すのは Cmd+a
+		{ key = "l", mods = "SUPER", action = wezterm.action_callback(show_layout) },
 		-- Claude Code のトランスクリプトモード切替。入力ソースを英数にしてから Ctrl+O を送る
 		{ key = "o", mods = "CTRL", action = wezterm.action_callback(claude_transcript_toggle) },
 		-- Herdr のスペース (ワークスペース) 切り替え (prefix なし): Cmd+j で次、Cmd+k で前
@@ -189,7 +261,8 @@ return {
 					local tab, new_pane = window:mux_window():spawn_tab({
 						cwd = cwd and cwd.file_path or nil,
 						-- ログインシェル経由で起動して PATH (~/.local/bin, homebrew) を引き継ぐ
-						args = { "/bin/zsh", "-lic", "exec herdr session attach " .. line },
+						-- 起動前に role=agent を書き込み、Cmd+a で戻れるようにする
+						args = { "/bin/zsh", "-lic", set_role_cmd("agent") .. "; exec herdr session attach " .. line },
 					})
 					tab:set_title(line)
 					new_pane:activate()
