@@ -35,9 +35,8 @@ overlay1 = "#666666"
 new_cwd = "current"
 
 [keys]
-# WezTerm の LEADER (ctrl+q) と衝突しないよう既定の ctrl+b のまま。
-# よく使うスペース切り替えは WezTerm 側の Cmd+j / Cmd+k が prefix+j / prefix+k を代わりに送る
-prefix = "ctrl+b"
+# WezTerm の LEADER (ctrl+q) と分離し、CapsLock に割り当てた Ctrl から押しやすいキーにする。
+prefix = "ctrl+a"
 # スペース (ワークスペース = 左の縦タブ) を上下に移動。エージェントの有無に関係なく全スペースを巡る
 next_workspace = "prefix+j"
 previous_workspace = "prefix+k"
@@ -51,6 +50,8 @@ focus_pane_up = "prefix+up"
 focus_pane_right = "prefix+right"
 # ワークスペースを番号で直接切り替え (prefix + 1..9 は既定どおりタブ切り替え)
 switch_workspace = "prefix+shift+1..9"
+# タブも Herdr Leader 経由に統一 (prefix + 1..9)
+switch_tab = "prefix+1..9"
 # サイドバーの表示切替 (既定値を明示)
 toggle_sidebar = "prefix+b"
 
