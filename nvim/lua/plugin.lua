@@ -18,16 +18,61 @@ return {
 	{
 		"nvim-lualine/lualine.nvim",
 		dependencies = { "nvim-tree/nvim-web-devicons" },
-		opts = {
-			options = {
-				theme = "vscode", -- vscode.nvim が提供する lualine テーマ
-			},
-			-- デフォルトの sections に branch が含まれる (lualine_b = { "branch", "diff", "diagnostics" })
-			sections = {
-				-- path = 1: ファイル名だけでなく cwd からの相対パスで表示 (同名ファイルの区別のため)
-				lualine_c = { { "filename", path = 1 } },
-			},
-		},
+		opts = function()
+			-- ブランチ表示を「タブの cwd (= neo-tree のルート) のリポジトリ」基準にする。
+			-- 既定の branch コンポーネントは開いているファイルのリポジトリを見るため、
+			-- neo-tree の . でルートを別リポジトリに変えても表示が追従しない。
+			-- cwd ごとにキャッシュし、DirChanged 時と数秒おきの再描画時に非同期で更新する
+			-- (外のシェルや AI エージェントによる checkout も拾えるように)
+			local cache = {} -- cwd -> { name = string, at = 秒 }
+			local REFRESH_SEC = 3
+			local function refresh(cwd)
+				cache[cwd] = cache[cwd] or { name = "" }
+				cache[cwd].at = os.time()
+				vim.system({ "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD" }, { text = true }, function(out)
+					local name = out.code == 0 and vim.trim(out.stdout or "") or ""
+					local function done()
+						if cache[cwd] and cache[cwd].name ~= name then
+							cache[cwd].name = name
+							vim.schedule(vim.cmd.redrawstatus)
+						end
+					end
+					if name ~= "HEAD" then
+						return done()
+					end
+					-- detached HEAD は短い hash を表示
+					vim.system({ "git", "-C", cwd, "rev-parse", "--short", "HEAD" }, { text = true }, function(o)
+						name = o.code == 0 and vim.trim(o.stdout or "") or ""
+						done()
+					end)
+				end)
+			end
+			local function cwd_branch()
+				local cwd = vim.fn.getcwd()
+				local entry = cache[cwd]
+				if not entry or os.time() - entry.at >= REFRESH_SEC then
+					refresh(cwd)
+				end
+				return cache[cwd].name
+			end
+			vim.api.nvim_create_autocmd("DirChanged", {
+				callback = function()
+					refresh(vim.fn.getcwd())
+				end,
+			})
+
+			return {
+				options = {
+					theme = "vscode", -- vscode.nvim が提供する lualine テーマ
+				},
+				sections = {
+					-- 既定は { "branch", "diff", "diagnostics" }。branch だけ cwd 基準の自作に差し替え
+					lualine_b = { { cwd_branch, icon = "" }, "diff", "diagnostics" },
+					-- path = 1: ファイル名だけでなく cwd からの相対パスで表示 (同名ファイルの区別のため)
+					lualine_c = { { "filename", path = 1 } },
+				},
+			}
+		end,
 	},
 	{
 		"nvim-treesitter/nvim-treesitter",
@@ -615,6 +660,12 @@ return {
 		config = function()
 			-- キーは <Leader>g (git) + 頭文字で統一 (gs = status は fugitive 側で定義済み)
 			-- どのキーも再度押すと差分ビューを閉じるトグル式
+			-- 差分は「タブの cwd (= neo-tree のルート) のリポジトリ」で開く。
+			-- diffview は既定で現在ファイルのリポジトリを優先するため、-C で cwd を明示する
+			-- (ファイル履歴 gh はファイルのリポジトリのままにする)
+			local function cwd_flag()
+				return "-C" .. vim.fn.fnameescape(vim.fn.getcwd())
+			end
 
 			-- 差分ビューが開いていれば閉じ、閉じていれば open_fn を実行する
 			local function toggle_view(open_fn)
@@ -630,11 +681,12 @@ return {
 			-- リモートブランチとの比較対象を解決する
 			-- upstream が設定されていればそれを、なければ origin/HEAD (リモートの既定ブランチ) を使う
 			local function remote_ref()
-				local upstream = vim.fn.systemlist("git rev-parse --abbrev-ref @{upstream}")[1]
+				local git = "git -C " .. vim.fn.shellescape(vim.fn.getcwd())
+				local upstream = vim.fn.systemlist(git .. " rev-parse --abbrev-ref @{upstream}")[1]
 				if vim.v.shell_error == 0 then
 					return upstream
 				end
-				local head = vim.fn.systemlist("git symbolic-ref --short refs/remotes/origin/HEAD")[1]
+				local head = vim.fn.systemlist(git .. " symbolic-ref --short refs/remotes/origin/HEAD")[1]
 				if vim.v.shell_error == 0 then
 					return head
 				end
@@ -650,7 +702,7 @@ return {
 					)
 					return
 				end
-				vim.cmd("DiffviewOpen " .. ref .. "...HEAD")
+				vim.cmd("DiffviewOpen " .. cwd_flag() .. " " .. ref .. "...HEAD")
 			end
 
 			-- g + d = git diff: ローカルの変更一覧 (未ステージ / ステージ済みをパネルで区別表示)
@@ -659,7 +711,7 @@ return {
 				"n",
 				"<Leader>gd",
 				toggle_view(function()
-					vim.cmd("DiffviewOpen")
+					vim.cmd("DiffviewOpen " .. cwd_flag())
 				end),
 				{ desc = "Git diff (toggle)" }
 			)
@@ -673,7 +725,7 @@ return {
 				"<Leader>gR",
 				toggle_view(function()
 					vim.notify("git fetch ...")
-					vim.system({ "git", "fetch" }, {}, function(out)
+					vim.system({ "git", "fetch" }, { cwd = vim.fn.getcwd() }, function(out)
 						vim.schedule(function()
 							if out.code ~= 0 then
 								vim.notify(

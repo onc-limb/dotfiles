@@ -80,6 +80,16 @@ main() {
         done
     fi
 
+    # Claude Code hooks (~/.claude/hooks には herdr が入れるフックもあるためファイル単位でリンク)
+    if [ -d "$DOTFILES_DIR/claude/home/hooks" ]; then
+        mkdir -p "$HOME/.claude/hooks"
+        for hook_file in "$DOTFILES_DIR/claude/home/hooks"/*; do
+            if [ -f "$hook_file" ]; then
+                create_link "$hook_file" "$HOME/.claude/hooks/$(basename "$hook_file")"
+            fi
+        done
+    fi
+
     # Claude Code home-level agents
     if [ -d "$DOTFILES_DIR/claude/home/agents" ]; then
         for agent_dir in "$DOTFILES_DIR/claude/home/agents"/*/; do
