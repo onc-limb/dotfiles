@@ -1,6 +1,6 @@
 -- VSCode Light Modern に合わせたライトテーマ
 -- 暗い背景に戻す場合はここを "dark" にする (vscode.nvim が Dark テーマに追従)
--- 背景は vscode.nvim の transparent = true で描画せず、wezterm と同じ透過背景にする
+-- 背景は vscode.nvim の transparent = true で描画せず、wezterm の背景色をそのまま使う
 vim.o.background = "light"
 
 vim.opt.number = true

@@ -12,9 +12,8 @@ config.font = wezterm.font_with_fallback({
 })
 
 config.use_ime = true
--- 背景を透過してデスクトップ壁紙 (明るめの白・青系) を見せる (nvim 中も同じ)
-config.window_background_opacity = 0.50
-config.macos_window_background_blur = 20
+-- 背景は不透明 (透過を戻す場合は window_background_opacity / macos_window_background_blur を設定)
+config.window_background_opacity = 1.0
 config.audible_bell = "SystemBeep"
 config.scrollback_lines = 10000
 
