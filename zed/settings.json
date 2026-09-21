@@ -31,7 +31,7 @@
   "session": {
     "trust_all_worktrees": true
   },
-  "cursor_shape": "block",
+  "cursor_shape": "bar",
   "cursor_blink": false,
   "agent_servers": {
     "codex-acp": {
@@ -49,6 +49,19 @@
   },
   "ui_font_size": 16,
   "buffer_font_size": 15,
+  "languages": {
+    "HTML": {
+      // ASSUMPTION: 「インデント幅は小さめ」を 2 スペースと解釈した
+      "tab_size": 2,
+      "prettier": {
+        "allowed": true,
+        // 既定の "css" は inline 要素の空白を意味ありとみなして入れ子を畳むため、
+        // 全ての入れ子をインデントさせるには "ignore" にする
+        "htmlWhitespaceSensitivity": "ignore",
+        "tabWidth": 2,
+      },
+    },
+  },
   "theme": {
     "mode": "light",
     "light": "One Light",
