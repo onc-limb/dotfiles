@@ -8,7 +8,7 @@
 - `borders/` - Borders設定
 - `claude/` - Claude Code設定（skills, agents, テンプレート）
 - `herdr/` - Herdr（AI エージェント用ターミナルマルチプレクサ）設定
-- `karabiner/` - Karabiner-Elements（キーリマップ。Caps→Ctrl、左右 Cmd 単押しで英数/かな、Realforce の Win/Alt 入れ替え）設定
+- `karabiner/` - Karabiner-Elements（キーリマップ。Caps→Ctrl、左右 Cmd 単押しで英数/かな、Ctrl 単押しで英数⇄かなトグル、Realforce の Win/Alt 入れ替え）設定
 - `nvim/` - Neovim設定
 - `starship.toml` - Starshipプロンプト設定
 - `wezterm/` - WezTerm設定

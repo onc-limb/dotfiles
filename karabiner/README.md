@@ -6,6 +6,9 @@ Karabiner-Elements の設定。`~/.config/karabiner` にディレクトリごと
 ## 内容
 
 - 全キーボード共通: Caps Lock → 左 Control。左右 Cmd の単押しで 英数 / かな（組み合わせ押しは通常の Cmd）。
+- 全キーボード共通: 左右 Ctrl の単押しで 英数 ⇄ かな をトグル（組み合わせ押しは通常の Ctrl）。
+  Karabiner の `input_source_if` で Apple 日本語 IME の現在モードを見て切り替えるため、Cmd 単押しや
+  メニューバーで切り替えた後もずれない。Caps Lock は Ctrl に化けているので Caps 単押しでも同じ動きになる。
 - Realforce（US 配列・Windows キー配置。Topre vendor 2131 / product 795）:
   Alt ⇄ Cmd、Win ⇄ Option を入れ替える。本体側（Realforce Connect 等）のキー入れ替えは
   既定に戻しておくこと（二重に入れ替わって元に戻ってしまう）。
