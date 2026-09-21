@@ -12,6 +12,7 @@
 - `nvim/` - Neovim設定
 - `starship.toml` - Starshipプロンプト設定
 - `wezterm/` - WezTerm設定
+- `zed/` - Zed エディタ設定（settings.json / keymap.json）
 
 ## セットアップ
 
@@ -42,6 +43,8 @@ cd ~/dotfiles
 | `claude/home/settings.json` | `~/.claude/settings.json` |
 | `claude/home/keybindings.json` | `~/.claude/keybindings.json` |
 | `claude/home/CLAUDE.md` | `~/.claude/CLAUDE.md` |
+| `zed/settings.json` | `~/.config/zed/settings.json` |
+| `zed/keymap.json` | `~/.config/zed/keymap.json` |
 
 ### 3. Claude テンプレートの配置（任意）
 
@@ -52,6 +55,24 @@ cp -r ~/dotfiles/claude/templates/obsidian/{.claude,CLAUDE.md} /path/to/obsidian
 ```
 
 コピー後、vault の `CLAUDE.md` を実際のフォルダ構造に合わせて編集してください。
+
+## Zed 設定
+
+`~/.config/zed/` にはプロンプトライブラリの LMDB（`prompts/`）など Zed が書き込む
+バイナリ状態が同居するため、ディレクトリごとではなく**ファイル単位**でリンクする。
+
+| ファイル | 役割 |
+|---------|------|
+| `settings.json` | テーマ・フォント・パネル配置・エージェントサーバーなど全体設定 |
+| `keymap.json` | キーバインド（`base_keymap` は VSCode） |
+
+自作テーマ（`themes/*.json`）やスニペット（`snippets/*.json`）を追加した場合は、
+`zed/` 配下に置いて `install.sh` にリンクを追記する。
+拡張機能の実体やセッション状態は `~/Library/Application Support/Zed/` にあり、
+マシンローカルなので管理対象外。
+
+プロジェクト個別の設定はリポジトリ直下の `.zed/settings.json` に置くと
+ここのグローバル設定にマージされる（プロジェクト側が優先）。
 
 ## Claude Code 設定
 

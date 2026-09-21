@@ -66,6 +66,10 @@ main() {
     create_link "$DOTFILES_DIR/karabiner" "$HOME/.config/karabiner"
     create_link "$DOTFILES_DIR/starship.toml" "$HOME/.config/starship.toml"
 
+    # Zed configuration (~/.config/zed には prompts/ の LMDB が入るためファイル単位でリンク)
+    create_link "$DOTFILES_DIR/zed/settings.json" "$HOME/.config/zed/settings.json"
+    create_link "$DOTFILES_DIR/zed/keymap.json" "$HOME/.config/zed/keymap.json"
+
     # Claude Code configuration (selective symlinks to ~/.claude/)
     create_link "$DOTFILES_DIR/claude/home/settings.json" "$HOME/.claude/settings.json"
     create_link "$DOTFILES_DIR/claude/home/keybindings.json" "$HOME/.claude/keybindings.json"
