@@ -2,9 +2,21 @@
 -- nvim からも dofile で読むため、wezterm モジュールには依存しないこと。
 -- 背景が透けても読めるよう、VSCode Light Modern より文字色を濃くし、ANSI 色も暗めに寄せている
 return {
-	-- 透過の度合い (WezTerm の window_background_opacity)
-	opacity = 0.82,
-	blur = 20,
+	-- 背景のぼかし (WezTerm の macos_window_background_blur)
+	blur = 30,
+
+	-- 背景: 淡いパステルのグラデーションを重ね、その下にデスクトップをぼかして透かす。
+	-- 文字の読みやすさを優先し、どの色も明度を高く・彩度を低くしている。
+	-- opacity を下げるほど透ける (下げすぎると暗い壁紙で文字が読みにくくなる)
+	background = {
+		-- ベース: 左上の淡い青 → 右下の淡い桃
+		base = { "#EEF4FF", "#F5F0FF", "#FFF3EE" },
+		base_opacity = 0.86,
+		-- 右上と左下にうっすら色を差して、平板に見えないようにする
+		glow_top = "#DCEBFF",
+		glow_bottom = "#FBE6F1",
+		glow_opacity = 0.35,
+	},
 
 	fg = "#1F1F1F",
 	bg = "#FFFFFF",
