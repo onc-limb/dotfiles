@@ -28,8 +28,13 @@ local function set_var_cmd(name, value)
 	return string.format([[printf '\033]1337;SetUserVar=%s=%%s\a' "$(printf %%s %s | base64)"]], name, shell_quote(value))
 end
 
--- ログインシェル経由で起動して PATH (homebrew / mise / ~/.local/bin) を引き継ぐ
-local function zsh(cmd)
+-- ログインシェル経由で起動して PATH (homebrew / mise / ~/.local/bin) を引き継ぐ。
+-- この版の WezTerm (20240203) はコマンド付きで spawn_tab / split すると cwd を無視して
+-- 今のペインのディレクトリで起動するため、コマンドの先頭で cd する
+function M.zsh(cmd, cwd)
+	if cwd then
+		cmd = "cd " .. shell_quote(cwd) .. " && " .. cmd
+	end
 	return { "/bin/zsh", "-lic", cmd }
 end
 
@@ -81,7 +86,7 @@ local function worktree_path(root, branch)
 	return string.format("%s/%s-%s", dirname(root), basename(root), (branch:gsub("/", "-")))
 end
 
-local function pane_cwd(pane)
+function M.pane_cwd(pane)
 	local cwd = pane:get_current_working_dir()
 	return cwd and cwd.file_path or wezterm.home_dir
 end
@@ -104,23 +109,29 @@ function M.spawn_worktree_tab(mux_window, path, opts)
 			)
 	end
 	cmd = cmd .. "; nvim --cmd 'let g:start_with_explorer = 1'; exec /bin/zsh -l"
-	local tab, pane = mux_window:spawn_tab({ cwd = path, args = zsh(cmd) })
+	local tab, pane = mux_window:spawn_tab({ cwd = path, args = M.zsh(cmd, path) })
 	tab:set_title(basename(path))
 	M.on_change()
 	return tab, pane
 end
 
--- エージェントのペインを右側に足す。session_id があればそのセッションを再開する
-function M.spawn_agent(tab, tool, session_id)
+-- エージェントのペインを右側に足す。session_id があればそのセッションを再開する。
+-- after: 直前に作ったエージェントのペイン (復旧時など、user var や状態ファイルがまだ届いていないとき用)
+-- cwd: 起動するディレクトリ (省略時は分割元のペインの cwd)
+function M.spawn_agent(tab, tool, session_id, after, cwd)
 	local agents = statusbar.agents_in_tab(tab)
 	local base, direction, size
-	if #agents > 0 then
+	if after then
+		base, direction, size = after, "Bottom", 0.5
+	elseif #agents > 0 then
 		-- 2 つ目以降は一番下のエージェントの下に縦に積む
 		base, direction, size = agents[#agents].pane, "Bottom", 0.5
 	else
 		base = M.find_role_pane(tab, "main") or M.find_role_pane(tab, "dashboard") or tab:active_pane()
 		-- エージェント一覧タブではメタエージェントを一覧の下に置く
-		direction = role_of(base) == "dashboard" and "Bottom" or "Right"
+		-- (作った直後は user var が届いていないので、タブ名でも判定する)
+		local in_dashboard = role_of(base) == "dashboard" or tab:get_title() == M.DASHBOARD_TITLE
+		direction = in_dashboard and "Bottom" or "Right"
 		size = direction == "Right" and 0.4 or 0.6
 	end
 	local launcher = tool == "codex" and "codex-auto" or "claude-auto"
@@ -136,15 +147,20 @@ function M.spawn_agent(tab, tool, session_id)
 		launcher,
 		resume
 	)
-	local pane = base:split({ direction = direction, size = size, cwd = pane_cwd(base), args = zsh(cmd) })
+	cwd = cwd or M.pane_cwd(base)
+	local pane = base:split({ direction = direction, size = size, cwd = cwd, args = M.zsh(cmd, cwd) })
 	M.on_change()
 	return pane
 end
 
--- エージェント一覧タブを作り、タブの先頭に置く
+-- エージェント一覧タブで動かすコマンド (session.lua がウィンドウを作るときにも使う)
+function M.dashboard_args()
+	return M.zsh(set_var_cmd("role", "dashboard") .. "; exec " .. BIN .. "/agent-dashboard", wezterm.home_dir)
+end
+
+-- エージェント一覧タブを作る
 function M.spawn_dashboard(mux_window)
-	local cmd = set_var_cmd("role", "dashboard") .. "; exec " .. BIN .. "/agent-dashboard"
-	local tab, pane = mux_window:spawn_tab({ cwd = wezterm.home_dir, args = zsh(cmd) })
+	local tab, pane = mux_window:spawn_tab({ cwd = wezterm.home_dir, args = M.dashboard_args() })
 	tab:set_title(M.DASHBOARD_TITLE)
 	return tab, pane
 end
@@ -178,7 +194,7 @@ end
 -- LEADER+n: 今のリポジトリの worktree を開く / 作る
 function M.pick_worktree()
 	return wezterm.action_callback(function(window, pane)
-		local root = main_repo_root(pane_cwd(pane))
+		local root = main_repo_root(M.pane_cwd(pane))
 		if not root then
 			window:toast_notification("worktree", "git リポジトリの中で実行してください", nil, 3000)
 			return
@@ -244,7 +260,7 @@ function M.pick_worktree()
 						-- 既に開いているタブがあればそこへ移動する
 						for _, t in ipairs(win:mux_window():tabs()) do
 							local main = M.find_role_pane(t, "main")
-							if main and pane_cwd(main):gsub("/+$", "") == dest then
+							if main and M.pane_cwd(main):gsub("/+$", "") == dest then
 								t:activate()
 								return
 							end

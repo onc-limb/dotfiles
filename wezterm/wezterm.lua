@@ -64,10 +64,17 @@ local SOLID_LEFT_ARROW = wezterm.nerdfonts.ple_left_half_circle_thick
 local SOLID_RIGHT_ARROW = wezterm.nerdfonts.ple_right_half_circle_thick
 
 -- 下のタブバー: 右側にエージェントの状態・モデルとコンテキスト・利用制限・ワークスペース名 (statusbar.lua)
--- 更新のついでに、ワークスペースにエージェント一覧タブがなければ作る (workspace.lua)
+-- 更新のついでに、ワークスペースにエージェント一覧タブがなければ作り (workspace.lua)、
+-- 構成が変わっていれば復旧用に保存する (session.lua)
 local workspace = require("workspace")
+local session = require("session")
+session.setup()
 require("statusbar").setup(config, function(window)
+	if wezterm.GLOBAL.session_restoring then
+		return
+	end
 	workspace.ensure_dashboard(window)
+	session.save()
 end)
 
 wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)

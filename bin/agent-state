@@ -159,7 +159,9 @@ def handle_hook(tool, data):
         "tool": tool,
         "profile": profile(),
         "session_id": data.get("session_id"),
-        "cwd": data.get("cwd"),
+        # セッションは起動したディレクトリに紐づく (claude --resume はそこからでないと見つからない)。
+        # 途中で cd しても変わらないよう、起動時の値だけを記録する
+        "cwd": data.get("cwd") if event == "SessionStart" else None,
         "state": state,
     }
     if tool == "codex":
@@ -176,7 +178,7 @@ def handle_statusline(data):
             "tool": "claude",
             "profile": profile(),
             "session_id": data.get("session_id"),
-            "cwd": (data.get("workspace") or {}).get("current_dir") or data.get("cwd"),
+            "cwd": (data.get("workspace") or {}).get("project_dir"),
             "model": (data.get("model") or {}).get("display_name"),
             "ctx_pct": round(ctx) if ctx is not None else None,
         }
