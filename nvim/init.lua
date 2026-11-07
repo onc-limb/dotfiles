@@ -19,6 +19,8 @@ vim.opt.smartcase = true -- ただし大文字を含む検索では区別する
 vim.opt.scrolloff = 5 -- カーソルの上下に常に確保する行数
 vim.opt.splitright = true -- 縦分割は右に開く
 vim.opt.splitbelow = true -- 横分割は下に開く
+-- コマンド行は普段隠し、: を押したときだけステータス行の位置に出す (画面の一番下まで本文を使う)
+vim.opt.cmdheight = 0
 
 -- =========================
 -- 外部変更の自動リロード

@@ -41,8 +41,9 @@ end
 function M.setup(config)
 	config.window_background_opacity = 1.0
 	config.macos_window_background_blur = 0
-	-- 文字が窓の縁に張り付かないよう、アプリらしく余白を取り、行間も少し広げる
-	config.window_padding = { left = 14, right = 14, top = 12, bottom = 8 }
+	-- 文字が窓の縁に張り付かないよう、アプリらしく余白を取り、行間も少し広げる。
+	-- 下はタブバーと接するので余白を付けない (nvim のステータス行がタブバーの真上に来る)
+	config.window_padding = { left = 14, right = 14, top = 12, bottom = 0 }
 	config.line_height = 1.1
 	-- ブロックではなく縦線のカーソル (テキストエディタのように)
 	config.default_cursor_style = "SteadyBar"
