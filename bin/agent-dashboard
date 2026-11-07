@@ -13,7 +13,7 @@ Agents wait in a hidden workspace and are moved into their tab only while shown 
 an agent belongs to the tab that holds its home pane (the "home" field of its state file).
 Joins `wezterm cli list` with the per-pane state files written by bin/agent-state.
 Colors come from wezterm/palette.lua so the dashboard matches WezTerm and nvim.
-The background is left unpainted so the WezTerm background shows through.
+The background is left unpainted, so it is the pane's (palette.bg).
 
 Keys / mouse:
   j/k ↓/↑  move between rows      h/l ←/→ Tab  move between cards
@@ -55,10 +55,10 @@ MARGIN = 2
 
 MODE_FILE = os.path.expanduser("~/.local/state/wezterm/theme")
 DEFAULT_COLORS = {
-    "light": {"fg": "#1F1F1F", "muted": "#6E6E6E", "accent": "#005FB8", "accent_fg": "#FFFFFF", "surface": "#E6E6E6",
-              "selection": "#ADD6FF", "ok": "#0B7A0B", "warn": "#9A6700", "error": "#B3261E"},
-    "dark": {"fg": "#E4E4E4", "muted": "#9A9DA6", "accent": "#4C9BF0", "accent_fg": "#0E1620", "surface": "#3A3D45",
-             "selection": "#264F78", "ok": "#5BC46A", "warn": "#E2B341", "error": "#F0605A"},
+    "light": {"fg": "#2F2A23", "muted": "#7D7466", "accent": "#2E6E70", "accent_fg": "#FBF7EE", "surface": "#E2D9C6",
+              "selection": "#EBD9A4", "ok": "#557A35", "warn": "#B0701A", "error": "#B04330"},
+    "dark": {"fg": "#E9E1D1", "muted": "#9E9483", "accent": "#72B5A9", "accent_fg": "#1B1915", "surface": "#3A342C",
+             "selection": "#4D4433", "ok": "#A3C173", "warn": "#E2AA4E", "error": "#E2735C"},
 }
 
 

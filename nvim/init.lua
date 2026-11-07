@@ -1,7 +1,6 @@
 -- ライト / ダークは WezTerm と同じ (~/.config/wezterm/palette.lua が ~/.local/state/wezterm/theme を読む)。
 -- vscode.nvim が vim.o.background に追従して Light / Dark テーマになる。WezTerm で LEADER+b を押すと、
 -- 開いている nvim も切り替わる (plugin.lua の vscode.nvim の設定)。
--- 背景は vscode.nvim の transparent = true で描画せず、wezterm の背景色をそのまま使う
 local palette_ok, palette = pcall(dofile, vim.fn.expand("~/.config/wezterm/palette.lua"))
 vim.o.background = palette_ok and type(palette) == "table" and palette.mode or "light"
 
@@ -173,13 +172,21 @@ vim.api.nvim_create_autocmd("FileType", {
 
 -- Treesitter 用のハイライトグループ (重要)
 -- 最新版では markdownH1 ではなく、以下の形式が推奨される場合があります
--- VSCode Light Modern の Markdown トークンカラーに合わせる (見出しは全レベル #800000)
-vim.api.nvim_set_hl(0, "@markup.heading.1.markdown", { fg = "#800000", bold = true })
-vim.api.nvim_set_hl(0, "@markup.heading.2.markdown", { fg = "#800000", bold = true })
-vim.api.nvim_set_hl(0, "@markup.heading.3.markdown", { fg = "#800000", bold = true })
-vim.api.nvim_set_hl(0, "@markup.quote.markdown", { fg = "#0451A5", italic = true })
--- コードブロックの背景 (VSCode の textCodeBlock 相当の淡いグレー)
-vim.api.nvim_set_hl(0, "@markup.raw.block.markdown", { bg = "#F3F3F3" })
+-- 色は palette.lua から取り、ライト / ダークを切り替えたとき (ColorScheme) にも当て直す。
+-- 見出しはれんが色、引用はアクセント色、コードブロックは一段沈んだ背景
+local function markdown_highlights()
+	local ok, p = pcall(dofile, vim.fn.expand("~/.config/wezterm/palette.lua"))
+	if not ok or type(p) ~= "table" then
+		return
+	end
+	for _, level in ipairs({ 1, 2, 3 }) do
+		vim.api.nvim_set_hl(0, "@markup.heading." .. level .. ".markdown", { fg = p.error, bold = true })
+	end
+	vim.api.nvim_set_hl(0, "@markup.quote.markdown", { fg = p.accent, italic = true })
+	vim.api.nvim_set_hl(0, "@markup.raw.block.markdown", { bg = p.chrome })
+end
+markdown_highlights()
+vim.api.nvim_create_autocmd("ColorScheme", { callback = markdown_highlights })
 
 -- 見出し移動キーマップを少し改良 (検索履歴を汚さない)
 vim.keymap.set("n", "]h", [[<cmd>keepjumps / ^#\+<CR>]], { desc = "Next heading" })

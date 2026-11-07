@@ -18,9 +18,7 @@ config.font = wezterm.font_with_fallback({
 	"Noto Color Emoji",
 })
 config.use_ime = true
--- 背景: 淡い (ダークでは暗い) グラデーションを重ね、下のデスクトップをぼかして透かす。
--- ライト / ダークは LEADER+b で切り替える (theme.lua)。
--- nvim は背景を描画しないので、シェル・nvim・エージェントのどのペインも同じ背景になる
+-- 背景は透過させずに塗りつぶす (デスクトップアプリ風)。ライト / ダークは LEADER+b で切り替える (theme.lua)
 require("theme").setup(config)
 config.audible_bell = "SystemBeep"
 config.scrollback_lines = 10000
@@ -48,6 +46,7 @@ config.colors = {
 	selection_bg = palette.selection,
 	ansi = palette.ansi,
 	brights = palette.brights,
+	split = palette.border,
 }
 -- 下のタブバー: 左端にワークスペース名、右側にエージェントの状態・モデルとコンテキスト・利用制限 (statusbar.lua)
 -- 更新のついでに、ワークスペースにエージェント一覧タブ・エージェントの状態カードがなければ作り、

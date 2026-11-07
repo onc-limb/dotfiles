@@ -3,7 +3,7 @@
 --  ( ◆ default )   1 ◆ agents   ( 2 dotfiles   main ● )   3 dotfiles   feat-a ●
 --
 -- - ワークスペースは濃いアクセント色の丸い札
--- - アクティブなタブは淡いアクセント色の丸い札。非アクティブなタブは背景なしで文字だけ (ホバーで薄く浮かせる)
+-- - アクティブなタブは本文と同じ色の丸い札 (沈んだタブバーから浮かせる)。非アクティブなタブは文字だけ (ホバーで薄く浮かせる)
 -- - タブの右端の ● は、そのタブで一番急ぎのエージェントの状態 (入力待ち > 作業中 > 完了)
 local wezterm = require("wezterm")
 local palette = require("palette")
@@ -61,13 +61,13 @@ local function format_tab(tab, hover, max_width)
 	local name, branch = tab_name(tab, mux_tab)
 	local state = mux_tab and tab_state(mux_tab)
 
-	local bg = "none"
+	local bg = palette.chrome
 	if tab.is_active then
 		bg = palette.accent_soft
 	elseif hover then
 		bg = palette.hover
 	end
-	local edge = bg == "none" and " " or nil
+	local edge = bg == palette.chrome and " " or nil
 
 	-- 番号・名前・ブランチ・状態の ● を max_width に収める (両端の丸と余白で 6 文字)
 	local room = max_width - 6 - #tostring(tab.tab_index + 1) - (state and 2 or 0)
@@ -79,8 +79,8 @@ local function format_tab(tab, hover, max_width)
 	name = wezterm.truncate_right(name, math.max(4, room))
 
 	local cells = {
-		{ Background = { Color = "none" } },
-		{ Foreground = { Color = bg == "none" and palette.fg or bg } },
+		{ Background = { Color = palette.chrome } },
+		{ Foreground = { Color = bg == palette.chrome and palette.fg or bg } },
 		{ Text = edge or LEFT },
 		{ Background = { Color = bg } },
 		{ Foreground = { Color = tab.is_active and palette.accent or palette.muted } },
@@ -101,8 +101,8 @@ local function format_tab(tab, hover, max_width)
 		table.insert(cells, { Text = " ●" })
 	end
 	table.insert(cells, { Text = " " })
-	table.insert(cells, { Background = { Color = "none" } })
-	table.insert(cells, { Foreground = { Color = bg == "none" and palette.fg or bg } })
+	table.insert(cells, { Background = { Color = palette.chrome } })
+	table.insert(cells, { Foreground = { Color = bg == palette.chrome and palette.fg or bg } })
 	table.insert(cells, { Text = edge or RIGHT })
 	return cells
 end
@@ -113,7 +113,8 @@ function M.setup(config)
 	-- タブ名 (リポジトリ名  ブランチ) が切れないよう、既定の 16 文字より広くする
 	config.tab_max_width = 44
 	config.colors = config.colors or {}
-	config.colors.tab_bar = { background = "none", inactive_tab_edge = "none" }
+	-- タブバーは本文より一段沈んだ色 (デスクトップアプリのタブ列のように)
+	config.colors.tab_bar = { background = palette.chrome, inactive_tab_edge = palette.chrome }
 	wezterm.on("format-tab-title", function(tab, _, _, _, hover, max_width)
 		return format_tab(tab, hover, max_width)
 	end)
