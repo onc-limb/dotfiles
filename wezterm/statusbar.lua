@@ -101,7 +101,20 @@ local function pct_color(pct)
 	return palette.fg
 end
 
--- 利用制限 1 ツール分: 例 "C 5h 32% 週 18%"
+local WEEKDAY = { "日", "月", "火", "水", "木", "金", "土" }
+
+-- リセット時刻: 5 時間枠は "14:30"、週次枠は "水 18:00" (7 日以内なので曜日で一意に決まる)
+local function reset_label(key, ts)
+	if not ts then
+		return nil
+	end
+	if key == "5h" then
+		return os.date("%H:%M", ts)
+	end
+	return WEEKDAY[tonumber(os.date("%w", ts)) + 1] .. os.date(" %H:%M", ts)
+end
+
+-- 利用制限 1 ツール分: 例 "C 5h 32% 14:30 週 18% 水 18:00"
 local function quota_cells(tool, profile)
 	local data = read_json(string.format("%s/quota-%s-%s.json", M.state_dir, tool, profile))
 	if not data or type(data.windows) ~= "table" then
@@ -123,6 +136,11 @@ local function quota_cells(tool, profile)
 			table.insert(cells, { Text = " " .. w.label .. " " })
 			table.insert(cells, { Foreground = { Color = stale and palette.muted or pct_color(pct) } })
 			table.insert(cells, { Text = text })
+			local reset = text ~= "–" and reset_label(w.key, v.resets_at)
+			if reset then
+				table.insert(cells, { Foreground = { Color = palette.muted } })
+				table.insert(cells, { Text = " " .. reset })
+			end
 		end
 	end
 	return cells
