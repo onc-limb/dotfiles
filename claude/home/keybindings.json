@@ -10,6 +10,12 @@
         "ctrl+e": "scroll:lineDown",
         "ctrl+y": "scroll:lineUp"
       }
+    },
+    {
+      "context": "Chat",
+      "bindings": {
+        "ctrl+alt+g": "command:orca-agent-view"
+      }
     }
   ]
 }
