@@ -7,6 +7,13 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
+  "edit_predictions": {
+    "mode": "eager"
+  },
+  "vim": {
+    "toggle_relative_line_numbers": true
+  },
+  "vim_mode": true,
   "autosave": {
     "after_delay": {
       "milliseconds": 1000
@@ -18,6 +25,11 @@
     "dock": "left"
   },
   "agent": {
+    "enable_feedback": false,
+    "threads_sidebar": {
+      "default_width": 200.0,
+      "position": "right"
+    },
     "dock": "right",
     "favorite_models": [],
     "model_parameters": []
@@ -40,9 +52,22 @@
     "claude-acp": {
       "default_config_options": {
         "mode": "auto",
-        "model": "claude-fable-5-1"
+        "model": "opus"
       },
       "type": "registry"
+    },
+    "Claude Code (Work)": {
+      "type": "custom",
+      "command": "/opt/homebrew/bin/npx",
+      "args": ["-y", "@agentclientprotocol/claude-agent-acp"],
+      "env": {
+        "CLAUDE_CONFIG_DIR": "/Users/satoshi-onga/.claude-work",
+        "ENABLE_CLAUDEAI_MCP_SERVERS": "false"
+      },
+      "default_config_options": {
+        "mode": "auto",
+        "model": "opus"
+      }
     }
   },
   "base_keymap": "VSCode",
