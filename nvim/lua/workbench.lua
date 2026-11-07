@@ -143,7 +143,8 @@ function M.close()
 		pcall(vim.fn.jobstop, vim.b[buf].terminal_job_id)
 		on_exit(buf)
 	else
-		vim.cmd("bdelete")
+		-- :bdelete だとウィンドウごと閉じてツリーだけが残り、nvim が終了してしまう
+		Snacks.bufdelete(buf)
 	end
 end
 
@@ -188,6 +189,55 @@ function M.start(restored)
 			pcall(vim.api.nvim_buf_delete, buf, {})
 		end
 	end
+end
+
+-- WezTerm のシェルから nvim / v (nvim .) で開いたときも、作業環境と同じ画面 (ツリー + 真ん中) にする。
+-- init.lua の先頭 (プラグインを読む前) で呼ぶ。対象は WezTerm の中で、引数なしかディレクトリ 1 つで起動したときだけ
+-- (ファイルを指定した起動や、git commit・Claude から呼ばれるエディタ、nvim の中の nvim はそのまま)。
+-- 作業環境のタブ (wezterm/workspace.lua) と同じく、
+--   - ペインの role を main にして、WezTerm にメインの nvim として扱わせる (タブ名・Cmd+e・エージェントの所属先)
+--   - <WEZTERM_PANE>.sock で待ち受けて、WezTerm のキーで真ん中を切り替えられるようにする
+-- 終了したら role を戻す
+local SOCKET_DIR = vim.fn.expand("~/.local/state/nvim/workbench")
+
+local function set_role(value)
+	-- OSC 1337 SetUserVar を端末に送る (WezTerm の user var)
+	pcall(vim.fn.chansend, vim.v.stderr, "\27]1337;SetUserVar=role=" .. vim.base64.encode(value) .. "\7")
+end
+
+function M.from_shell()
+	if vim.g.start_with_explorer == 1 or not vim.env.WEZTERM_PANE or vim.env.NVIM then
+		return
+	end
+	for _, a in ipairs(vim.v.argv) do
+		-- 通常の起動でも設定は --embed の子プロセスで読まれるので、--embed は除外しない
+		if a == "--headless" or a == "-es" or a == "-Es" then
+			return
+		end
+	end
+	local argc = vim.fn.argc()
+	if argc == 1 and vim.fn.isdirectory(vim.fn.argv(0)) == 1 then
+		-- nvim . / nvim <dir>: そのディレクトリで作業環境を開く (ディレクトリ自体は開かない)
+		vim.cmd.cd(vim.fn.fnameescape(vim.fn.argv(0)))
+		vim.cmd("silent! %argdelete")
+		-- それでも oil がディレクトリのバッファを開くので、VimEnter で片付ける (plugin.lua)
+		vim.g.workbench_from_dir = 1
+	elseif argc ~= 0 then
+		return
+	end
+	vim.g.start_with_explorer = 1
+	local sock = SOCKET_DIR .. "/" .. vim.env.WEZTERM_PANE .. ".sock"
+	if vim.v.servername ~= sock then
+		vim.fn.mkdir(SOCKET_DIR, "p")
+		os.remove(sock)
+		pcall(vim.fn.serverstart, sock)
+	end
+	set_role("main")
+	vim.api.nvim_create_autocmd("VimLeavePre", {
+		callback = function()
+			set_role("")
+		end,
+	})
 end
 
 function M.setup()

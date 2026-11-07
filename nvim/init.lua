@@ -1,6 +1,9 @@
 -- ライト / ダークは WezTerm と同じ (~/.config/wezterm/palette.lua が ~/.local/state/wezterm/theme を読む)。
 -- vscode.nvim が vim.o.background に追従して Light / Dark テーマになる。WezTerm で LEADER+b を押すと、
 -- 開いている nvim も切り替わる (plugin.lua の vscode.nvim の設定)。
+-- WezTerm のシェルから nvim / v で開いたときも、作業環境と同じ画面にする (プラグインを読む前に決める)
+require("workbench").from_shell()
+
 local palette_ok, palette = pcall(dofile, vim.fn.expand("~/.config/wezterm/palette.lua"))
 vim.o.background = palette_ok and type(palette) == "table" and palette.mode or "light"
 

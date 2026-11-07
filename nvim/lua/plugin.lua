@@ -321,6 +321,13 @@ return {
 				-- 復元したファイルでも filetype 判定や treesitter の autocmd が走るよう nested にする
 				nested = true,
 				callback = function()
+					-- シェルから nvim <ディレクトリ> で開いた作業環境 (workbench.from_shell): oil が開いたディレクトリの
+					-- バッファを消して、引数なしで起動したときと同じ状態にする
+					if vim.g.workbench_from_dir == 1 then
+						local dir_buf = vim.api.nvim_get_current_buf()
+						vim.cmd("enew")
+						pcall(vim.api.nvim_buf_delete, dir_buf, { force = true })
+					end
 					if vim.fn.argc() == 0 and vim.api.nvim_buf_get_name(0) == "" then
 						if vim.g.start_with_explorer == 1 then
 							-- ツリーは表示だけして、フォーカスは真ん中に置く。
@@ -511,7 +518,15 @@ return {
 		keys = {
 			{ "<S-l>", "<cmd>BufferLineCycleNext<CR>", desc = "Next buffer tab" },
 			{ "<S-h>", "<cmd>BufferLineCyclePrev<CR>", desc = "Prev buffer tab" },
-			{ "<leader>bd", "<cmd>bdelete<CR>", desc = "Close buffer" },
+			-- :bdelete はバッファを表示していたウィンドウごと閉じるため、ツリーだけが残って nvim が終了してしまう。
+			-- snacks の bufdelete はウィンドウを残したまま、別のバッファに切り替えてから消す
+			{
+				"<leader>bd",
+				function()
+					Snacks.bufdelete()
+				end,
+				desc = "Close buffer",
+			},
 			{ "<leader>bo", "<cmd>BufferLineCloseOthers<CR>", desc = "Close other buffers" },
 			{ "<leader>bp", "<cmd>BufferLineTogglePin<CR>", desc = "Pin buffer" },
 		},
@@ -519,6 +534,18 @@ return {
 			options = {
 				separator_style = "thin",
 				show_close_icon = false,
+				-- タブごとの × も出さない (閉じるのは <leader>bd。誤クリックで閉じないように)
+				show_buffer_close_icons = false,
+				-- タブの × / 右クリック / 中クリックで閉じるときも、ウィンドウを残す (<leader>bd と同じ)
+				close_command = function(bufnr)
+					Snacks.bufdelete(bufnr)
+				end,
+				right_mouse_command = function(bufnr)
+					Snacks.bufdelete(bufnr)
+				end,
+				middle_mouse_command = function(bufnr)
+					Snacks.bufdelete(bufnr)
+				end,
 				diagnostics = "nvim_lsp", -- タブ上にエラー/警告数を表示 (VSCode 風)
 				-- ターミナルのバッファは「 Terminal」と出す (workbench.lua)
 				name_formatter = function(buf)
