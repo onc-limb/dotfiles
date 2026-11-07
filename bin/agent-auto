@@ -1,0 +1,74 @@
+#!/bin/bash
+# Launch Claude Code or Codex with the work or private config, chosen by where it runs.
+# Invoked through symlinks named claude-auto / codex-auto (used as Orca's agent command overrides).
+#
+# Work = the repository's main checkout lives under $WORK_ROOT (default ~/work). The git common dir
+# is used so linked worktrees resolve to their main checkout wherever they are created.
+# Override the detection with AGENT_PROFILE=work|private. Explicit CLAUDE_CONFIG_DIR / CODEX_HOME win.
+set -euo pipefail
+
+WORK_ROOT="${WORK_ROOT:-$HOME/work}"
+
+case "$(basename "$0")" in
+  claude-auto) tool=claude ;;
+  codex-auto) tool=codex ;;
+  *) tool="${1:?usage: agent-auto claude|codex [args...]}"; shift ;;
+esac
+
+profile="${AGENT_PROFILE:-}"
+if [ -z "$profile" ]; then
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+  case "${common:-$PWD}/" in
+    "$WORK_ROOT"/*) profile=work ;;
+    *) profile=private ;;
+  esac
+fi
+
+if [ "$profile" = work ]; then
+  case "$tool" in
+    claude)
+      export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude-work}"
+      export ENABLE_CLAUDEAI_MCP_SERVERS="${ENABLE_CLAUDEAI_MCP_SERVERS:-false}"
+      ;;
+    codex)
+      export CODEX_HOME="${CODEX_HOME:-$HOME/.codex-work}"
+      ;;
+  esac
+
+  # Orca's default launch args bypass permissions and the sandbox for every project. Drop them
+  # for work so the work config's own permission mode / sandbox policy applies.
+  args=()
+  for a in "$@"; do
+    case "$a" in
+      --dangerously-skip-permissions | --dangerously-bypass-approvals-and-sandbox | --yolo) ;;
+      *) args+=("$a") ;;
+    esac
+  done
+  set -- ${args[@]+"${args[@]}"}
+fi
+
+# Default Claude's effort for Orca launches. An explicit --effort in the args wins;
+# override the default with AGENT_AUTO_EFFORT (empty disables it and defers to settings).
+if [ "$tool" = claude ]; then
+  effort="${AGENT_AUTO_EFFORT-high}"
+  for a in "$@"; do
+    case "$a" in --effort | --effort=*) effort="" ;; esac
+  done
+  [ -n "$effort" ] && set -- --effort "$effort" "$@"
+fi
+
+# Resolve the real binary, skipping anything that resolves back to this wrapper.
+self=$(realpath "$0")
+bin=""
+IFS=: read -ra dirs <<<"$PATH:$HOME/.local/bin:/opt/homebrew/bin"
+for d in "${dirs[@]}"; do
+  c="$d/$tool"
+  if [ -n "$d" ] && [ -x "$c" ] && [ "$(realpath "$c")" != "$self" ]; then
+    bin="$c"
+    break
+  fi
+done
+[ -n "$bin" ] || { echo "agent-auto: $tool not found in PATH" >&2; exit 127; }
+
+[ -n "${AGENT_AUTO_DEBUG:-}" ] && echo "agent-auto: $tool profile=$profile bin=$bin" >&2
+exec "$bin" "$@"

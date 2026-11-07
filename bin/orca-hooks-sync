@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Copy Orca's agent status hooks from the default agent configs into the work configs.
+
+Orca installs its hooks only into ~/.claude/settings.json and ~/.codex/hooks.json. Agents
+launched with CLAUDE_CONFIG_DIR=~/.claude-work or CODEX_HOME=~/.codex-work would otherwise
+report no status to Orca. Only entries that call ~/.orca/agent-hooks are copied; private hooks
+(worklog, herdr, ...) stay out of the work configs. Re-run after Orca updates its hooks.
+"""
+import json
+import os
+import shutil
+import sys
+
+HOME = os.path.expanduser("~")
+PAIRS = [
+    (f"{HOME}/.claude/settings.json", f"{HOME}/.claude-work/settings.json"),
+    (f"{HOME}/.codex/hooks.json", f"{HOME}/.codex-work/hooks.json"),
+]
+MARKER = "agent-hooks"
+
+
+def is_orca(group):
+    return any(MARKER in h.get("command", "") for h in group.get("hooks", []))
+
+
+def sync(src, dst):
+    with open(src) as f:
+        src_hooks = json.load(f).get("hooks", {})
+    dst_doc = {}
+    if os.path.exists(dst):
+        with open(dst) as f:
+            dst_doc = json.load(f)
+    dst_hooks = dst_doc.get("hooks", {})
+
+    merged = {}
+    for event in dict.fromkeys([*dst_hooks, *src_hooks]):
+        kept = [g for g in dst_hooks.get(event, []) if not is_orca(g)]
+        orca = [g for g in src_hooks.get(event, []) if is_orca(g)]
+        if kept or orca:
+            merged[event] = kept + orca
+    if merged == dst_hooks:
+        print(f"unchanged: {dst}")
+        return
+
+    if os.path.exists(dst):
+        shutil.copy2(dst, dst + ".bak")
+    dst_doc["hooks"] = merged
+    with open(dst, "w") as f:
+        json.dump(dst_doc, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    count = sum(len(v) for v in merged.values())
+    print(f"updated: {dst} ({count} hook groups)")
+
+
+def main():
+    for src, dst in PAIRS:
+        if not os.path.exists(src):
+            print(f"skip: {src} not found", file=sys.stderr)
+            continue
+        if not os.path.isdir(os.path.dirname(dst)):
+            print(f"skip: {os.path.dirname(dst)} does not exist", file=sys.stderr)
+            continue
+        sync(src, dst)
+
+
+if __name__ == "__main__":
+    main()
