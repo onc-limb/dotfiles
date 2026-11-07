@@ -5,6 +5,12 @@
       └ work environment (= tab, one directory / worktree)   -> a card
           └ agent (= pane running Claude Code / Codex)        -> a row in the card
 
+With --sidebar it is the narrow column on the right of a work environment instead: one card per agent
+of that tab (state, what it was asked, what it is doing now), split evenly over the height.
+It exits once the tab has no agents, which closes the column.
+
+Agents wait in a hidden workspace and are moved into their tab only while shown (bin/agent-view);
+an agent belongs to the tab that holds its home pane (the "home" field of its state file).
 Joins `wezterm cli list` with the per-pane state files written by bin/agent-state.
 Colors come from wezterm/palette.lua so the dashboard matches WezTerm and nvim.
 The background is left unpainted so the WezTerm background shows through.
@@ -14,6 +20,7 @@ Keys / mouse:
   Enter    open the selection      click        open what was clicked
   1-9      jump to agent           a            toggle cards / flat agent list (waiting first)
 """
+import contextlib
 import json
 import os
 import re
@@ -184,9 +191,39 @@ def git_info(path):
     return info
 
 
+def agent_states():
+    """pane id -> state of the agent running in that pane."""
+    states = {}
+    try:
+        names = os.listdir(STATE_DIR)
+    except OSError:
+        return states
+    for name in names:
+        m = re.fullmatch(r"(\d+)\.json", name)
+        if m:
+            state = read_json(os.path.join(STATE_DIR, name))
+            if state:
+                states[int(m[1])] = state
+    return states
+
+
+def tab_agents(tab_pane_ids, states, all_panes):
+    """Agents of a tab, in launch order: [(pane, state)]. An agent belongs to the tab that holds its home
+    pane, wherever the agent pane is now (hidden workspace, or the tab while shown)."""
+    out = []
+    for pane_id, state in states.items():
+        home = state.get("home")
+        if pane_id in all_panes and (home in tab_pane_ids if home is not None else pane_id in tab_pane_ids):
+            out.append((all_panes[pane_id], state))
+    out.sort(key=lambda r: r[0]["pane_id"])
+    return out
+
+
 def collect():
     """Returns (workspace, envs). envs keep the tab order; each env has its agents in screen order."""
     panes = wezterm_panes()
+    all_panes = {p["pane_id"]: p for p in panes}
+    states = agent_states()
     me = os.environ.get("WEZTERM_PANE")
     mine = next((p for p in panes if str(p["pane_id"]) == me), None)
     workspace = mine["workspace"] if mine else None
@@ -201,13 +238,14 @@ def collect():
             env["is_dashboard"] = bool(mine and p["tab_id"] == mine["tab_id"]) or title == DASHBOARD_TITLE
             by_tab[p["tab_id"]] = env
             envs.append(env)
-        env["panes"].append(p)
-        state = read_json(os.path.join(STATE_DIR, f"{p['pane_id']}.json"))
-        if state:
-            env["agents"].append((p, state))
+        # An agent shown in its tab is not part of the environment's own layout
+        # (one run directly in a pane, without a home, is)
+        if (states.get(p["pane_id"]) or {}).get("home") is None:
+            env["panes"].append(p)
+    envs = [e for e in envs if e["panes"]]
     for env in envs:
-        env["panes"].sort(key=lambda p: (p["left_col"], p["top_row"]))
-        env["agents"].sort(key=lambda r: (r[0]["left_col"], r[0]["top_row"]))
+        env["agents"] = tab_agents({p["pane_id"] for p in env["panes"]}, states, all_panes)
+        env["panes"].sort(key=lambda p: (p["left_col"], p["top_row"], p["pane_id"]))
         # The main pane (nvim) is the top-left one; its directory names the environment
         env["main_pane"] = env["panes"][0]
         env["path"] = pane_path(env["main_pane"])
@@ -512,9 +550,153 @@ def layout(workspace, envs, items, cursor, flat):
 # ---------------------------------------------------------------- input
 
 
-def jump(pane):
+AGENT_VIEW = os.path.join(os.path.dirname(os.path.realpath(__file__)), "agent-view")
+
+
+def show_agent(pane_id):
+    """Move the agent into its tab and zoom it (bin/agent-view)."""
+    subprocess.run([AGENT_VIEW, "show", str(pane_id)], capture_output=True)
+
+
+def jump(item):
+    """Open an item: an agent is shown full size in its tab, an environment is activated."""
+    pane = item["pane"]
+    if item["kind"] == "agent":
+        show_agent(pane["pane_id"])
+        return
     subprocess.run(["wezterm", "cli", "activate-tab", "--tab-id", str(pane["tab_id"])], capture_output=True)
     subprocess.run(["wezterm", "cli", "activate-pane", "--pane-id", str(pane["pane_id"])], capture_output=True)
+
+
+# ---------------------------------------------------------------- sidebar
+
+
+def wrap(text, n, max_lines):
+    """Wrap text to lines of n display columns (the last one ends with … when cut)."""
+    lines, cur, w = [], "", 0
+    for c in " ".join((text or "").split()):
+        if w + cwidth(c) > n:
+            lines.append(cur)
+            cur, w = "", 0
+            if c == " ":
+                continue
+        cur, w = cur + c, w + cwidth(c)
+    if cur:
+        lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = fit(lines[-1] + "…", n).rstrip()
+    return lines
+
+
+def sidebar_collect():
+    """(agents of this tab [(pane, state)], pane id of the agent shown in the tab or None)."""
+    panes = wezterm_panes()
+    all_panes = {p["pane_id"]: p for p in panes}
+    me = all_panes.get(int(os.environ.get("WEZTERM_PANE") or -1))
+    if not me:
+        return [], None
+    tab_ids = {p["pane_id"] for p in panes if p["tab_id"] == me["tab_id"]}
+    # Only agents launched for this tab (with a home); one run directly in a pane is its own pane
+    agents = [r for r in tab_agents(tab_ids, agent_states(), all_panes) if r[1].get("home") is not None]
+    shown = next((p["pane_id"] for p, _ in agents if p["tab_id"] == me["tab_id"]), None)
+    return agents, shown
+
+
+CIRCLED = "①②③④⑤⑥⑦⑧⑨"
+
+
+def agent_card(num, state, w, h, selected):
+    """One agent: number + tool in the title, then state, what it was asked and what it is doing now."""
+    inner = w - 4
+    st = state.get("state")
+    color = STATE_COLOR.get(st, PAL["muted"])
+    title = Line().add(CIRCLED[num - 1] if num <= len(CIRCLED) else str(num), fg=PAL["accent"] if selected else PAL["muted"], bold=True)
+    title.add(" " + TOOL_LABEL.get(state.get("tool"), state.get("tool") or "?"), fg=PAL["fg"], bold=True)
+    head = Line().add("● ", fg=color).add(STATE_LABEL.get(st, "?"), fg=color, bold=True)
+    when = age(state.get("updated_at"))
+    head.add(" " * max(1, inner - head.w - width(when))).add(when, fg=PAL["muted"])
+    body = [head]
+    activity = state.get("activity") or ""
+    room = h - 2 - len(body) - (1 if activity else 0)
+    task = state.get("task") or ""
+    if room > 0:
+        for line in wrap(task, inner, room) if task else [("まだ指示はありません", PAL["muted"])][:room]:
+            if isinstance(line, tuple):
+                body.append(Line().add(line[0], fg=line[1]))
+            else:
+                body.append(Line().add(line, fg=PAL["fg"]))
+    if activity:
+        prefix = "許可待ち " if st == "waiting" else "▸ "
+        body.append(Line().add(fit(prefix + activity, inner), fg=PAL["warn"] if st == "waiting" else PAL["muted"]))
+    while len(body) < h - 2:
+        body.append(Line())
+    return card(w, title, body[: h - 2], selected)
+
+
+def sidebar_layout(agents, cursor, shown):
+    cols, rows = shutil.get_terminal_size((34, 40))
+    scr = Screen()
+    w = max(16, cols - 1)
+    counts = Line().add(" エージェント", fg=PAL["muted"], bold=True).add(f" {len(agents)}", fg=PAL["fg"], bold=True)
+    scr.put(counts)
+    foot = Line().add(" ↵/クリック", fg=PAL["fg"], bold=True).add(" 表示  ", fg=PAL["muted"])
+    foot.add("LEADER z", fg=PAL["fg"], bold=True).add(" 戻す", fg=PAL["muted"])
+    avail = rows - 2
+    # Split the height evenly between the cards (at least 5 rows each: border, state, 1 line, border)
+    h = max(5, avail // max(1, len(agents)))
+    for i, (pane, state) in enumerate(agents):
+        top = len(scr.lines)
+        selected = pane["pane_id"] == shown or (shown is None and i == cursor)
+        for line in agent_card(i + 1, state, w, h, selected):
+            scr.put(line)
+        for row in range(top, top + h):
+            scr.hits.append((row, 0, w, i))
+    while len(scr.lines) < rows - 1:
+        scr.blank()
+    scr.lines = scr.lines[: rows - 1]
+    scr.put(foot)
+    return scr, rows
+
+
+def sidebar_main():
+    """The agent column of a work environment. Exits when the tab has no agents left."""
+    started, empty_since, cursor = time.time(), None, 0
+    with terminal():
+        while True:
+            agents, shown = sidebar_collect()
+            if agents:
+                empty_since = None
+            else:
+                empty_since = empty_since or time.time()
+                # Give a just launched agent time to appear before closing the column
+                if time.time() - empty_since >= 3 and time.time() - started >= 5:
+                    return
+            cursor = min(cursor, max(0, len(agents) - 1))
+            scr, rows = sidebar_layout(agents, cursor, shown)
+            scr.draw(rows)
+            ready, _, _ = select.select([sys.stdin], [], [], 1)
+            if not ready:
+                continue
+            key = read_input()
+            if isinstance(key, tuple):
+                _, x, y = key
+                for row, c0, c1, idx in scr.hits:
+                    if row == y - 1 and c0 <= x - 1 < c1:
+                        cursor = idx
+                        show_agent(agents[idx][0]["pane_id"])
+                        break
+            elif key in ("j", "down") and agents:
+                cursor = min(cursor + 1, len(agents) - 1)
+            elif key in ("k", "up") and agents:
+                cursor = max(cursor - 1, 0)
+            elif key in ("\r", "\n") and agents:
+                show_agent(agents[cursor][0]["pane_id"])
+            elif key.isdigit() and key != "0" and int(key) <= len(agents):
+                show_agent(agents[int(key) - 1][0]["pane_id"])
+
+
+# ---------------------------------------------------------------- input
 
 
 def read_input():
@@ -532,14 +714,24 @@ def read_input():
     return keys.get(data, data[:1])
 
 
-def main():
+@contextlib.contextmanager
+def terminal():
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     tty.setcbreak(fd)
     # alternate screen, hide cursor, mouse (press + SGR coordinates)
     sys.stdout.write("\033[?1049h\033[?25l\033[?1000h\033[?1006h")
-    cursor_key, flat = None, False
     try:
+        yield
+    finally:
+        sys.stdout.write("\033[?1000l\033[?1006l\033[?25h\033[?1049l")
+        sys.stdout.flush()
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def main():
+    cursor_key, flat = None, False
+    with terminal():
         while True:
             workspace, envs = collect()
             items = build_items(envs, flat)
@@ -557,7 +749,7 @@ def main():
                 for row, c0, c1, idx in scr.hits:
                     if row == y - 1 and c0 <= x - 1 < c1:
                         cursor = idx
-                        jump(items[idx]["pane"])
+                        jump(items[idx])
                         break
             elif key in ("j", "down") and items:
                 cursor = min(cursor + 1, len(items) - 1)
@@ -570,7 +762,7 @@ def main():
                 prev = [i for i in env_starts if i < start]
                 cursor = prev[-1] if prev else env_starts[-1]
             elif key in ("\r", "\n") and items:
-                jump(items[cursor]["pane"])
+                jump(items[cursor])
             elif key == "a":
                 flat, cursor = not flat, 0
                 cursor_key = None
@@ -578,16 +770,12 @@ def main():
             elif key.isdigit() and key != "0":
                 agents = [it for it in items if it["kind"] == "agent"]
                 if int(key) <= len(agents):
-                    jump(agents[int(key) - 1]["pane"])
+                    jump(agents[int(key) - 1])
             cursor_key = keys[cursor] if items and cursor < len(keys) else None
-    finally:
-        sys.stdout.write("\033[?1000l\033[?1006l\033[?25h\033[?1049l")
-        sys.stdout.flush()
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sidebar_main() if "--sidebar" in sys.argv[1:] else main()
     except KeyboardInterrupt:
         pass

@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Show an agent in its work environment, or put it away.
+
+Agents (Claude Code / Codex panes) are not kept in the work environment tab. They wait in a hidden
+workspace (STASH; WezTerm shows no window for a workspace that is not active) and are moved into the
+tab, zoomed, only while you look at them. The tab itself shows the agent cards (agent-dashboard --sidebar).
+
+Each agent's home is the pane it belongs to (the main nvim of the work environment, or the dashboard):
+the "home" field of ~/.local/state/agents/<pane>.json, written by wezterm/workspace.lua and bin/agent-state.
+
+Usage:
+  agent-view show <pane>   move the agent into its home tab (putting away the one shown there) and zoom it
+  agent-view hide <pane>   move the agent back to the hidden workspace and focus its home pane
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+STATE_DIR = os.path.expanduser("~/.local/state/agents")
+STASH = "_agents"
+
+
+def wezterm():
+    # WEZTERM_EXECUTABLE is wezterm-gui; the cli is the wezterm next to it.
+    # Started from WezTerm's Lua (not from a pane), PATH may not contain wezterm
+    gui = os.environ.get("WEZTERM_EXECUTABLE")
+    for path in (gui and os.path.join(os.path.dirname(gui), "wezterm"), shutil.which("wezterm"),
+                 "/opt/homebrew/bin/wezterm", "/Applications/WezTerm.app/Contents/MacOS/wezterm"):
+        if path and os.path.exists(path):
+            return path
+    return "wezterm"
+
+
+WEZTERM = wezterm()
+
+
+def cli(*args):
+    return subprocess.run([WEZTERM, "cli", *map(str, args)], capture_output=True, text=True, timeout=5)
+
+
+def panes():
+    try:
+        return {p["pane_id"]: p for p in json.loads(cli("list", "--format", "json").stdout)}
+    except (ValueError, subprocess.SubprocessError, OSError):
+        return {}
+
+
+def read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def home_of(pane_id):
+    return read_json(os.path.join(STATE_DIR, f"{pane_id}.json")).get("home")
+
+
+def write_shown(home, pane_id):
+    """Remember the last agent shown for a home (LEADER z shows it again)."""
+    try:
+        with open(os.path.join(STATE_DIR, f"shown-{home}"), "w") as f:
+            f.write(str(pane_id))
+    except OSError:
+        pass
+
+
+def stash(pane_id):
+    cli("move-pane-to-new-tab", "--pane-id", pane_id, "--new-window", "--workspace", STASH)
+
+
+def show(pane_id):
+    all_panes = panes()
+    agent = all_panes.get(pane_id)
+    home = home_of(pane_id)
+    if not agent or home not in all_panes:
+        return
+    tab = all_panes[home]["tab_id"]
+    if agent["tab_id"] != tab:
+        # Only one agent at a time in the tab: put away the others of this tab
+        for p in all_panes.values():
+            if p["tab_id"] == tab and p["pane_id"] not in (home, pane_id) and home_of(p["pane_id"]) is not None:
+                stash(p["pane_id"])
+        cli("split-pane", "--pane-id", home, "--right", "--percent", 50, "--move-pane-id", pane_id)
+    cli("activate-tab", "--tab-id", tab)
+    cli("activate-pane", "--pane-id", pane_id)
+    cli("zoom-pane", "--pane-id", pane_id, "--zoom")
+    write_shown(home, pane_id)
+
+
+def hide(pane_id):
+    all_panes = panes()
+    agent = all_panes.get(pane_id)
+    home = home_of(pane_id)
+    if not agent or agent["workspace"] == STASH:
+        return
+    stash(pane_id)
+    if home in all_panes:
+        cli("activate-pane", "--pane-id", home)
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in ("show", "hide") or not sys.argv[2].isdigit():
+        print(__doc__, file=sys.stderr)
+        return 2
+    (show if sys.argv[1] == "show" else hide)(int(sys.argv[2]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

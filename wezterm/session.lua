@@ -4,6 +4,7 @@
 -- 復元: WezTerm の起動時 (gui-startup) だけ。新しいウィンドウを開いたときには何もしない
 --   worktree タブ → メインの nvim を開き直す (開いていたファイルは nvim 側の worktree_session.lua が戻す)
 --   エージェント → claude --resume <id> / codex resume <id> で会話を再開する
+--                  (見えないワークスペースで再開し、元のタブの状態カードに並べる)
 -- 実行中だった処理・スクロール履歴・nvim の中のターミナルは戻らない
 local wezterm = require("wezterm")
 local statusbar = require("statusbar")
@@ -21,6 +22,10 @@ local function snapshot()
 	local by_workspace, order = {}, {}
 	for _, win in ipairs(wezterm.mux.all_windows()) do
 		local name = win:get_workspace()
+		-- エージェントを置いておく見えないワークスペースは保存しない (エージェントは所属するタブの分として保存する)
+		if name == workspace.STASH then
+			goto continue
+		end
 		if not by_workspace[name] then
 			by_workspace[name] = { name = name, tabs = {} }
 			table.insert(order, by_workspace[name])
@@ -34,7 +39,7 @@ local function snapshot()
 				-- worktree タブ以外 (素のシェルのタブなど) はディレクトリだけ戻す
 				entry = {
 					kind = main and "worktree" or "shell",
-					cwd = workspace.pane_cwd(main or tab:active_pane()),
+					cwd = workspace.pane_cwd(main or workspace.home_pane(tab)),
 					title = tab:get_title(),
 				}
 			end
@@ -48,6 +53,7 @@ local function snapshot()
 			end
 			table.insert(by_workspace[name].tabs, entry)
 		end
+		::continue::
 	end
 	return { workspaces = order, active_workspace = wezterm.mux.get_active_workspace() }
 end
@@ -97,7 +103,7 @@ local function clear_agent_states()
 		return
 	end
 	for _, path in ipairs(paths) do
-		if path:match("/%d+%.json$") then
+		if path:match("/%d+%.json$") or path:match("/shown%-%d+$") then
 			os.remove(path)
 		end
 	end
@@ -107,19 +113,24 @@ local function exists(path)
 	return path and wezterm.run_child_process({ "test", "-d", path })
 end
 
-local function restore_agents(tab, list, cwd)
-	local previous = nil
+-- home: エージェントが所属するペイン (作業環境のメインの nvim など)
+local function restore_agents(tab, home, list, cwd)
+	local any = false
 	for _, a in ipairs(list or {}) do
 		if a.tool then
-			previous = workspace.spawn_agent(tab, a.tool, a.session_id, previous, a.cwd or cwd)
+			workspace.spawn_agent(home, a.tool, a.session_id, a.cwd or cwd)
+			any = true
 		end
+	end
+	if any then
+		workspace.ensure_sidebar(tab, home)
 	end
 end
 
 local function restore(data)
 	for _, ws in ipairs(data.workspaces) do
 		-- 1 つ目のタブ (エージェント一覧) でウィンドウを作り、残りのタブを足していく
-		local dashboard_tab, _, window = wezterm.mux.spawn_window({
+		local dashboard_tab, dashboard_pane, window = wezterm.mux.spawn_window({
 			workspace = ws.name,
 			cwd = wezterm.home_dir,
 			args = workspace.dashboard_args(),
@@ -128,18 +139,18 @@ local function restore(data)
 		local env_tabs = 0
 		for _, entry in ipairs(ws.tabs) do
 			if entry.kind == "dashboard" then
-				restore_agents(dashboard_tab, entry.agents, wezterm.home_dir)
+				restore_agents(dashboard_tab, dashboard_pane, entry.agents, wezterm.home_dir)
 			elseif exists(entry.cwd) then
-				local tab
+				local tab, home
 				if entry.kind == "worktree" then
-					tab = workspace.spawn_worktree_tab(window, entry.cwd)
+					tab, home = workspace.spawn_worktree_tab(window, entry.cwd)
 				else
-					tab = window:spawn_tab({ cwd = entry.cwd })
+					tab, home = window:spawn_tab({ cwd = entry.cwd })
 				end
+				restore_agents(tab, home, entry.agents, entry.cwd)
 				if entry.title and entry.title ~= "" then
 					tab:set_title(entry.title)
 				end
-				restore_agents(tab, entry.agents, entry.cwd)
 				env_tabs = env_tabs + 1
 			end
 		end

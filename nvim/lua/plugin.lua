@@ -293,18 +293,22 @@ return {
 			-- 前回開いていたファイルを復元し、neo-tree を左に常駐させる (VSCode のエクスプローラー相当)
 			local worktree_session = require("worktree_session")
 			worktree_session.setup()
+			-- 真ん中でファイルとターミナルを切り替える (workbench.lua。エージェントは nvim の外の WezTerm のペイン)
+			local workbench = require("workbench")
+			if vim.g.start_with_explorer == 1 then
+				workbench.setup()
+			end
 			vim.api.nvim_create_autocmd("VimEnter", {
 				-- 復元したファイルでも filetype 判定や treesitter の autocmd が走るよう nested にする
 				nested = true,
 				callback = function()
 					if vim.fn.argc() == 0 and vim.api.nvim_buf_get_name(0) == "" then
 						if vim.g.start_with_explorer == 1 then
-							if worktree_session.restore() then
-								-- フォーカスは復元したファイルに残し、ツリーは表示だけする
-								vim.cmd("Neotree show left")
-							else
-								vim.cmd("Neotree left")
-							end
+							-- ツリーは表示だけして、フォーカスは真ん中に置く。
+							-- ターミナルを 1 つ用意し、前回のファイルを開き直せなければターミナルを表示する
+							local restored = worktree_session.restore()
+							vim.cmd("Neotree show left")
+							workbench.start(restored)
 						else
 							require("oil").open()
 						end
@@ -497,6 +501,10 @@ return {
 				separator_style = "thin",
 				show_close_icon = false,
 				diagnostics = "nvim_lsp", -- タブ上にエラー/警告数を表示 (VSCode 風)
+				-- ターミナルのバッファは「 Terminal」と出す (workbench.lua)
+				name_formatter = function(buf)
+					return require("workbench").buf_label(buf.bufnr)
+				end,
 				-- neo-tree が開いている間はタブバーをその分右にずらす
 				offsets = {
 					{ filetype = "neo-tree", text = "EXPLORER", text_align = "left", separator = true },
@@ -877,18 +885,14 @@ return {
 		lazy = false,
 		opts = {
 			image = { enabled = true },
-			-- nvim の中のターミナル。メインの nvim からシェルへ行き来するため (WezTerm のペインは使わない)
-			terminal = {
-				win = { position = "bottom", height = 0.4 },
-			},
 		},
 		keys = {
-			-- Ctrl + / : ターミナルの開閉 (ターミナルの中からも閉じられる)。
+			-- Ctrl + / : 真ん中のターミナルとファイルを行き来する (workbench.lua。ターミナルの中からも戻れる)。
 			-- 端末によって Ctrl+/ は Ctrl+_ として届くので両方に割り当てる
 			{
 				"<C-/>",
 				function()
-					Snacks.terminal.toggle()
+					require("workbench").toggle_terminal()
 				end,
 				mode = { "n", "t" },
 				desc = "Terminal (toggle)",
@@ -896,7 +900,7 @@ return {
 			{
 				"<C-_>",
 				function()
-					Snacks.terminal.toggle()
+					require("workbench").toggle_terminal()
 				end,
 				mode = { "n", "t" },
 				desc = "Terminal (toggle)",

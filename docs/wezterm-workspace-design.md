@@ -13,18 +13,29 @@ Orca から WezTerm に一本化するための設計メモ。herdr は使わず
 ## 画面構成
 
 ```
-┌──────────┬─────────────────────┬──────────────┐
-│ neo-tree │ nvim (メイン)        │ エージェント   │
-│ (表示切替)│ ターミナルも nvim 内 │ (縦に並べる)   │
-└──────────┴─────────────────────┴──────────────┘
+┌──────────┬───────────────────────────────┬ ① Claude ───────────┐
+│ neo-tree │ [app.ts] [ Terminal]          │ ● 作業中      30秒前 │
+│          │  nvim (ファイル / ターミナル)  │ README を直して…     │
+│          │                               │ ▸ Edit README.md     │
+│          │                               ├ ② Codex ────────────┤
+│          │                               │ ● 入力待ち     3分前 │
+└──────────┴───────────────────────────────┴──────────────────────┘
  ◆ default │ 1 ◆ agents  2 repo  main  3 repo  feat-a │ ①claude ⏳ ②codex 💬 │ Opus 42% │ C 5h 32% 14:30 週 18% 水 09:00 │ X 週 23% 木 07:58
 ```
 
-入れ子は ワークスペース → 作業環境 (タブ = ディレクトリ / worktree) → エージェント (ペイン)。
+入れ子は ワークスペース → 作業環境 (タブ = ディレクトリ / worktree) → エージェント。
+
+- 作業環境のタブは、左に nvim (ツリー・ファイル・ターミナル。ターミナルは真ん中で切り替える `nvim/lua/workbench.lua`)、
+  右にエージェントの状態カード (`agent-dashboard --sidebar`、幅 34 セル)。カードはエージェントの数で高さを等分し、
+  状態・最後に頼んだこと・いま使っているツールだけを出す。エージェントがいない間はカードの列ごと出さない
+- エージェント本体は見えないワークスペース (`_agents`) で動かし、カードの Enter / クリック、`Cmd+a`、LEADER `1..9`、
+  LEADER `z` で作業環境のタブに移して全画面で表示する。LEADER `z` / `Cmd+e` で見えないワークスペースに戻す
+  (`bin/agent-view`)。WezTerm はアクティブでないワークスペースのウィンドウを表示しない
+- エージェントは nvim の中では動かさない (nvim のターミナルの中ではキーが全部エージェントに届き、nvim のキーが効かない)
 
 - LEADER `w` でワークスペースを選ぶと、作業環境の数とエージェントの状態が並び、入るとエージェント一覧タブが開く
 - エージェント一覧タブは作業環境ごとのカードにエージェントを並べる（`a` でエージェントだけの待ち順一覧に切り替え）。
-  j/k・h/l で選んで Enter かクリックで、その作業環境 (nvim) / エージェントのペインへ移動する。
+  j/k・h/l で選んで Enter かクリックで、その作業環境 (nvim) へ移動する / エージェントを全画面で表示する。
   利用制限はメーターとリセット時刻・残り時間で出す。配色は `palette.lua` を読み、背景は塗らずに WezTerm の背景を透かす
 - 起動時は、エージェント一覧タブのほかに作業環境のタブを最低 1 つ開く（復元するタブがなければホームで開く）
 
@@ -35,14 +46,17 @@ Orca から WezTerm に一本化するための設計メモ。herdr は使わず
 - 作業環境のタブ名は「リポジトリ名  ブランチ」(worktree でも元のリポジトリ名)。git の外ならディレクトリ名。
   エージェント一覧タブのカードも同じ名前にする
 - ワークスペースごとに、閉じられないエージェント一覧タブ（◆）を 1 つ置く
-- エージェントは右側に縦に並べるだけにする（裏に退避して入れ替える仕組みは作らない）
+- エージェントがどのタブのものかは、状態ファイルの `home`（所属するペイン = 作業環境のメインの nvim、
+  または一覧タブ）で決める。ペインで直接 `claude` を動かした場合 (home なし) は、そのペインのタブのもの
+- タブを閉じるときは、そのタブのエージェントも止めるか確認する。所属するペインが無くなったエージェントは止める
 
 ## データの流れ
 
 ```
 Claude / Codex の hook ──┐
 Claude のステータスライン ─┼─▶ ~/.local/state/agents/<WEZTERM_PANE>.json ──▶ WezTerm (タブバー)
-Codex のセッションログ ───┘   状態 / session_id / モデル / コンテキスト        │
+Codex のセッションログ ───┘   状態 / session_id / モデル / コンテキスト /       │
+                              頼んだこと / いまのツール / home                  │
                                                                          ▼
 WezTerm (タブ・ワークスペースの変化) ──▶ ~/.local/state/wezterm/session.json ──▶ 起動時に復旧
 ```
@@ -63,8 +77,14 @@ WezTerm は読むだけ、エージェント側は書くだけ。
 
 ```json
 { "tool": "claude", "profile": "work", "session_id": "…", "cwd": "/…/repo-feat-a",
-  "state": "working", "model": "Opus", "ctx_pct": 42, "updated_at": 1794000000 }
+  "state": "working", "model": "Opus", "ctx_pct": 42, "updated_at": 1794000000,
+  "pane": 12, "home": 3, "task": "README を直して…", "activity": "Edit README.md" }
 ```
+
+- `task`: UserPromptSubmit の入力 (1 行に詰めて 200 文字まで)。再開したセッションは SessionStart で
+  トランスクリプトから最後の入力を読む
+- `activity`: PreToolUse のツール名と対象 (ファイル名・コマンドなど)。Stop と次の入力で消す
+- `home`: エージェントを起動した WezTerm が `AGENT_HOME` で渡す
 
 ### 利用制限
 
@@ -78,7 +98,8 @@ WezTerm は読むだけ、エージェント側は書くだけ。
 
 - 保存: タブ・ワークスペース・エージェントが変化したときと、タブバーの更新のついでに `session.json` へ書く
 - 復元: WezTerm の起動時（`gui-startup`）だけ。新しいウィンドウを開いたときには復元しない
-- エージェント: `claude --resume <id>` / `codex resume <id>`（`claude-auto` / `codex-auto` 経由）
+- エージェント: `claude --resume <id>` / `codex resume <id>`（`claude-auto` / `codex-auto` 経由）。
+  見えないワークスペースで再開し、元のタブの状態カードに並べる (見えないワークスペース自体は保存しない)
 - nvim: worktree ごとに `:mksession` を `~/.local/state/nvim/sessions/` に保存し、起動時に読み込む
 - 戻らないもの: 実行中だった処理、スクロール履歴、nvim の中のターミナル
 
@@ -98,12 +119,15 @@ WezTerm は読むだけ、エージェント側は書くだけ。
 | LEADER `b` | 背景のプリセットを選ぶ |
 | LEADER `w` / LEADER `W` | ワークスペースの選択（入るとエージェント一覧タブ） / 作成 |
 | LEADER `n` | worktree のタブを作る / 開く |
-| LEADER `c` / LEADER `x` | Claude / Codex を起動 |
-| `Cmd+e` | nvim のペインへ |
-| `Cmd+a` | エージェントのペインへ（押すたびに次へ） |
-| LEADER `1..9` | 番号でエージェントを選ぶ |
-| LEADER `X` | ペインを閉じる（LEADER `x` は Codex に付け替えた） |
-| `Cmd+w` | タブを閉じる（エージェント一覧タブは閉じない） |
+| LEADER `c` / LEADER `x` | Claude / Codex を起動して全画面で表示（右に状態カードが出る） |
+| LEADER `z` | エージェントを表示する / 戻す（最後に見たエージェント。エージェントのいないタブではペインの拡大） |
+| `Cmd+e` | ファイルへ（エージェントを見ていたら戻す） |
+| `Cmd+a` | 次のエージェントを全画面で表示 |
+| LEADER `1..9` | 番号のエージェントを表示（カードの ① ② と同じ番号） |
+| `Cmd+j` / LEADER `t` | nvim の真ん中のターミナルとファイルを行き来 / 新しいターミナル |
+| `Cmd+[` / `Cmd+]` | nvim の真ん中の左右のタブへ |
+| LEADER `X` | ペインを閉じる（nvim では真ん中のファイル・ターミナルを閉じる。LEADER `x` は Codex） |
+| `Cmd+w` | タブを閉じる（エージェントがいれば一緒に止めるか確認。エージェント一覧タブは閉じない） |
 
 nvim 側:
 
@@ -111,7 +135,7 @@ nvim 側:
 |---|---|
 | `Space e` | ツリーにフォーカス / ツリー上で閉じる |
 | `Space E` | ツリーを変更ファイル表示に切り替え（ツリー上では `<` `>` でも切り替え、`D` で差分） |
-| `Ctrl+/` | nvim の中のターミナルを開閉 |
+| `Ctrl+/` | 真ん中のターミナルとファイルを行き来（`Cmd+j` と同じ） |
 | `Space m` | Markdown のソース / レンダリング表示を切り替え |
 | `Space gd` | 変更の一覧と差分（diffview） |
 
@@ -126,6 +150,11 @@ nvim 側:
 
 ## 実装メモ
 
+- エージェントの出し入れは `wezterm cli split-pane --move-pane-id`（タブへ）と
+  `move-pane-to-new-tab --new-window --workspace _agents`（見えないワークスペースへ）。Lua にはペインを
+  別のタブへ移す API がないので、`bin/agent-view` が CLI で行い、WezTerm・カード・一覧タブから呼ぶ
+- 作業環境の nvim は `~/.local/state/nvim/workbench/<WEZTERM_PANE>.sock` で待ち受け、WezTerm は
+  `nvim --server <sock> --remote-expr "v:lua.require'workbench'.rpc(...)"` で真ん中のファイル・ターミナルを切り替える
 - WezTerm 20240203 は、コマンド付きで `spawn_tab` / `split` すると `cwd` を無視して今のペインの
   ディレクトリで起動する。そのためコマンドの先頭で `cd` している（`workspace.lua` の `M.zsh`）
 - Claude のセッションは起動したディレクトリに紐づくので、状態ファイルの `cwd` は起動時の値
@@ -140,13 +169,15 @@ nvim 側:
 | ファイル | 役割 |
 |---|---|
 | `bin/agent-state` | hook / ステータスラインから状態ファイルと利用制限を書く |
-| `bin/agent-dashboard` | エージェント一覧タブの中身 |
+| `bin/agent-dashboard` | エージェント一覧タブの中身 / `--sidebar` で作業環境の右の状態カード |
+| `bin/agent-view` | エージェントをタブに出して全画面にする / 見えないワークスペースに戻す |
 | `wezterm/palette.lua` | 配色（nvim・エージェント一覧タブからも読む） |
 | `wezterm/background.lua` | 背景のプリセットと切り替え |
 | `wezterm/statusbar.lua` | 下のタブバーの右側 |
 | `wezterm/workspace.lua` | worktree タブ、エージェント、エージェント一覧タブ、キー操作 |
 | `wezterm/session.lua` | 復旧の保存と復元 |
 | `nvim/lua/worktree_session.lua` | worktree ごとに開いていたファイルの保存と復元 |
+| `nvim/lua/workbench.lua` | nvim の真ん中のファイルとターミナルの切り替え |
 
 ## 実装の順番
 

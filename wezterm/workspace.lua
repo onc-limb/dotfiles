@@ -1,12 +1,14 @@
 -- タブ = worktree、ワークスペース = private / work / 案件 の運用を組み立てる
 --
 -- 各 worktree タブ:
---   左 (main)   : メインの nvim (neo-tree 常駐、ターミナルも nvim の中)。nvim を抜けても zsh が残る
---   右 (agent)  : Claude Code / Codex。複数なら右側に縦に並べる
+--   左 (main)     : メインの nvim (neo-tree 常駐、ファイルとターミナル)。nvim を抜けても zsh が残る
+--   右 (sidebar)  : そのタブのエージェントの状態カード (bin/agent-dashboard --sidebar)。エージェントがいる間だけ
+--   エージェント  : 普段は見えないワークスペース (STASH) で動かし、見るときだけタブに移して全画面にする (bin/agent-view)
 -- ワークスペースごとに閉じられないエージェント一覧タブ (dashboard) を 1 つ置く。
 --
 -- ペインの役割は、ペインの中のシェルが OSC 1337 SetUserVar で書き込む user var で見分ける
---   role = main / agent / dashboard、tool = claude / codex
+--   role = main / agent / sidebar / dashboard、tool = claude / codex
+-- エージェントがどのタブのものかは、状態ファイルの home (所属するペイン) で決める (statusbar.agents_in_tab)
 -- (Lua 側のテーブルと違い、設定の自動リロードで消えない)
 local wezterm = require("wezterm")
 local act = wezterm.action
@@ -15,7 +17,13 @@ local statusbar = require("statusbar")
 local M = {}
 
 local BIN = wezterm.home_dir .. "/dotfiles/bin"
+-- 作業環境の nvim が待ち受けるソケット (<WEZTERM_PANE>.sock)
+local SOCKET_DIR = wezterm.home_dir .. "/.local/state/nvim/workbench"
 M.DASHBOARD_TITLE = "◆ agents"
+-- エージェントを置いておく見えないワークスペース (bin/agent-view と同じ名前)
+M.STASH = "_agents"
+-- 右側の状態カードの幅 (セル数)
+local SIDEBAR_COLS = 34
 
 -- 新しく作ったペイン・タブを知らせるコールバック (session.lua が保存のきっかけに使う)
 M.on_change = function() end
@@ -108,32 +116,40 @@ function M.spawn_worktree_tab(mux_window, path, opts)
 				shell_quote(root)
 			)
 	end
-	cmd = cmd .. "; nvim --cmd 'let g:start_with_explorer = 1'; exec /bin/zsh -l"
+	-- WezTerm から真ん中の切り替えを指示できるよう、ペインごとのソケットで待ち受ける (M.nvim_call)
+	local nvim_args = "--cmd 'let g:start_with_explorer = 1'"
+	cmd = cmd
+		.. string.format(
+			'; mkdir -p %s; sock=%s/"$WEZTERM_PANE".sock; rm -f "$sock"; nvim --listen "$sock" %s; exec /bin/zsh -l',
+			shell_quote(SOCKET_DIR),
+			shell_quote(SOCKET_DIR),
+			nvim_args
+		)
 	local tab, pane = mux_window:spawn_tab({ cwd = path, args = M.zsh(cmd, path) })
 	tab:set_title(basename(path))
 	M.on_change()
 	return tab, pane
 end
 
--- エージェントのペインを右側に足す。session_id があればそのセッションを再開する。
--- after: 直前に作ったエージェントのペイン (復旧時など、user var や状態ファイルがまだ届いていないとき用)
--- cwd: 起動するディレクトリ (省略時は分割元のペインの cwd)
-function M.spawn_agent(tab, tool, session_id, after, cwd)
-	local agents = statusbar.agents_in_tab(tab)
-	local base, direction, size
-	if after then
-		base, direction, size = after, "Bottom", 0.5
-	elseif #agents > 0 then
-		-- 2 つ目以降は一番下のエージェントの下に縦に積む
-		base, direction, size = agents[#agents].pane, "Bottom", 0.5
-	else
-		base = M.find_role_pane(tab, "main") or M.find_role_pane(tab, "dashboard") or tab:active_pane()
-		-- エージェント一覧タブではメタエージェントを一覧の下に置く
-		-- (作った直後は user var が届いていないので、タブ名でも判定する)
-		local in_dashboard = role_of(base) == "dashboard" or tab:get_title() == M.DASHBOARD_TITLE
-		direction = in_dashboard and "Bottom" or "Right"
-		size = direction == "Right" and 0.4 or 0.6
+-- エージェントが所属するペイン (home): 作業環境のメインの nvim、エージェント一覧、それ以外は今のペイン
+function M.home_pane(tab, pane)
+	local home = M.find_role_pane(tab, "main") or M.find_role_pane(tab, "dashboard")
+	if home then
+		return home
 	end
+	local first = statusbar.agents_in_tab(tab)[1]
+	if first and first.agent.home then
+		local ok, p = pcall(wezterm.mux.get_pane, first.agent.home)
+		if ok and p then
+			return p
+		end
+	end
+	return pane or tab:active_pane()
+end
+
+-- エージェントを見えないワークスペースで起動する。session_id があればそのセッションを再開する。
+-- home: 所属するペイン / cwd: 起動するディレクトリ (省略時は home の cwd)
+function M.spawn_agent(home, tool, session_id, cwd)
 	local launcher = tool == "codex" and "codex-auto" or "claude-auto"
 	local resume = ""
 	if session_id and session_id ~= "" then
@@ -147,10 +163,99 @@ function M.spawn_agent(tab, tool, session_id, after, cwd)
 		launcher,
 		resume
 	)
-	cwd = cwd or M.pane_cwd(base)
-	local pane = base:split({ direction = direction, size = size, cwd = cwd, args = M.zsh(cmd, cwd) })
+	cwd = cwd or M.pane_cwd(home)
+	local _, pane = wezterm.mux.spawn_window({
+		workspace = M.STASH,
+		cwd = cwd,
+		args = M.zsh(cmd, cwd),
+		-- bin/agent-state が状態ファイルの home に書く
+		set_environment_variables = { AGENT_HOME = tostring(home:pane_id()) },
+	})
+	-- hook が状態を書く前から、所属するタブのエージェントとして数える
+	os.execute("mkdir -p " .. shell_quote(statusbar.state_dir))
+	local f = io.open(string.format("%s/%d.json", statusbar.state_dir, pane:pane_id()), "w")
+	if f then
+		f:write(wezterm.json_encode({
+			tool = tool,
+			state = "idle",
+			pane = pane:pane_id(),
+			home = home:pane_id(),
+			session_id = session_id,
+			cwd = cwd,
+			updated_at = os.time(),
+		}))
+		f:close()
+	end
 	M.on_change()
 	return pane
+end
+
+-- 右側の状態カードのペイン (エージェント一覧タブには作らない)。
+-- 作った直後は user var が届いていないので、作ったペインを覚えておく
+local sidebars = {}
+function M.ensure_sidebar(tab, home)
+	if role_of(home) == "dashboard" or tab:get_title() == M.DASHBOARD_TITLE then
+		return
+	end
+	for _, p in ipairs(tab:panes()) do
+		if role_of(p) == "sidebar" or sidebars[tab:tab_id()] == p:pane_id() then
+			return
+		end
+	end
+	local args = M.zsh(set_var_cmd("role", "sidebar") .. "; exec " .. BIN .. "/agent-dashboard --sidebar", wezterm.home_dir)
+	local pane = home:split({ direction = "Right", size = SIDEBAR_COLS, top_level = true, args = args })
+	sidebars[tab:tab_id()] = pane:pane_id()
+end
+
+-- エージェントのいるタブに状態カードがなければ作る (update-status から毎秒呼ばれる。
+-- 復旧したタブや、カードのペインを閉じてしまったとき用)
+-- (ペインで直接動かしているエージェント (home なし) だけのタブには作らない)
+function M.ensure_sidebars(window)
+	local tab = window:active_tab()
+	if not tab then
+		return
+	end
+	for _, item in ipairs(statusbar.agents_in_tab(tab)) do
+		if item.agent.home then
+			M.ensure_sidebar(tab, M.home_pane(tab))
+			return
+		end
+	end
+end
+
+-- bin/agent-view show / hide を呼ぶ (エージェントをタブに出して全画面にする / 見えないワークスペースに戻す)
+local function agent_view(cmd, pane_id)
+	wezterm.run_child_process({ BIN .. "/agent-view", cmd, tostring(pane_id) })
+end
+
+-- タブに出ているエージェントを見えないワークスペースに戻す
+local function hide_agents(tab)
+	local in_tab = {}
+	for _, p in ipairs(tab:panes()) do
+		in_tab[p:pane_id()] = true
+	end
+	for _, item in ipairs(statusbar.agents_in_tab(tab)) do
+		if in_tab[item.pane:pane_id()] and item.agent.home and item.agent.home ~= item.pane:pane_id() then
+			agent_view("hide", item.pane:pane_id())
+		end
+	end
+end
+
+-- 所属するペインが無くなった (タブを閉じた) エージェントを止め、終了したエージェントの状態ファイルを消す。
+-- update-status から毎秒呼ばれる
+function M.cleanup_agents()
+	for id, agent in pairs(statusbar.read_agents()) do
+		local ok_home, home = pcall(wezterm.mux.get_pane, agent.home or -1)
+		local ok, pane = pcall(wezterm.mux.get_pane, id)
+		if not (ok and pane) then
+			os.remove(string.format("%s/%d.json", statusbar.state_dir, id))
+		elseif agent.home and not (ok_home and home) then
+			local window = pane:window()
+			if window and window:get_workspace() == M.STASH then
+				wezterm.run_child_process({ wezterm.executable_dir .. "/wezterm", "cli", "kill-pane", "--pane-id", tostring(id) })
+			end
+		end
+	end
 end
 
 -- エージェント一覧タブで動かすコマンド (session.lua がウィンドウを作るときにも使う)
@@ -283,50 +388,154 @@ function M.new_env_tab()
 	end)
 end
 
+----------------------------------------------------
+-- 作業環境の nvim (真ん中のファイル・ターミナル・エージェント) を操作する
+----------------------------------------------------
+
+local NVIM = nil
+local function nvim_bin()
+	if not NVIM then
+		NVIM = "nvim"
+		for _, p in ipairs({ "/opt/homebrew/bin/nvim", "/usr/local/bin/nvim" }) do
+			if wezterm.run_child_process({ "test", "-x", p }) then
+				NVIM = p
+				break
+			end
+		end
+	end
+	return NVIM
+end
+
+-- メインの nvim の workbench.rpc(name, ...) を呼ぶ。引数は数値か文字列
+function M.nvim_call(main_pane, name, ...)
+	local args = { string.format("'%s'", name) }
+	for _, v in ipairs({ ... }) do
+		table.insert(args, type(v) == "number" and tostring(v) or string.format("'%s'", v))
+	end
+	local sock = string.format("%s/%d.sock", SOCKET_DIR, main_pane:pane_id())
+	local ok = wezterm.run_child_process({
+		nvim_bin(),
+		"--server",
+		sock,
+		"--remote-expr",
+		"v:lua.require'workbench'.rpc(" .. table.concat(args, ", ") .. ")",
+	})
+	return ok
+end
+
+-- 作業環境のタブなら、(出ているエージェントを戻して) メインの nvim のペインに移ってから name を呼ぶ。
+-- 作業環境でなければ false
+local function in_workbench(window, pane, name, ...)
+	local tab = window:active_tab()
+	local main = M.find_role_pane(tab, "main")
+	if not main then
+		return false
+	end
+	hide_agents(tab)
+	main:activate()
+	M.nvim_call(main, name, ...)
+	return true
+end
+
+-- LEADER+c / LEADER+x: エージェントを起動して全画面で表示する。右側に状態カードが出る
 function M.launch_agent(tool)
-	return wezterm.action_callback(function(window)
-		local pane = M.spawn_agent(window:active_tab(), tool)
-		pane:activate()
+	return wezterm.action_callback(function(window, pane)
+		local tab = window:active_tab()
+		local home = M.home_pane(tab, pane)
+		local agent = M.spawn_agent(home, tool)
+		M.ensure_sidebar(tab, home)
+		agent_view("show", agent:pane_id())
 	end)
 end
 
--- Cmd+e: メインの nvim へ
+-- LEADER+t: 真ん中に新しいターミナルを開く
+function M.new_terminal()
+	return wezterm.action_callback(function(window, pane)
+		in_workbench(window, pane, "open")
+	end)
+end
+
+-- Cmd+j: 真ん中のターミナルとファイルを行き来する
+function M.toggle_terminal()
+	return wezterm.action_callback(function(window, pane)
+		in_workbench(window, pane, "toggle_terminal")
+	end)
+end
+
+-- Cmd+[ / Cmd+]: 真ん中のタブを左右に移動する
+function M.cycle_center(step)
+	return wezterm.action_callback(function(window, pane)
+		in_workbench(window, pane, "cycle", step)
+	end)
+end
+
+-- Cmd+e: ファイル (メインの nvim の編集画面) へ。エージェントを見ていたら戻す
 function M.focus_main()
 	return wezterm.action_callback(function(window, pane)
-		local target = M.find_role_pane(window:active_tab(), "main")
-		if target then
-			window:perform_action(act.SetPaneZoomState(false), pane)
-			target:activate()
+		if not in_workbench(window, pane, "editor") then
+			hide_agents(window:active_tab())
 		end
 	end)
 end
 
--- Cmd+a: エージェントのペインへ。押すたびに次のエージェントへ
+-- 今見ているエージェント (アクティブなペインがタブのエージェントなら、その番号)
+local function current_index(agents, pane)
+	for i, item in ipairs(agents) do
+		if item.pane:pane_id() == pane:pane_id() then
+			return i
+		end
+	end
+	return nil
+end
+
+-- Cmd+a: 次のエージェントを表示する
 function M.cycle_agent()
 	return wezterm.action_callback(function(window, pane)
 		local agents = statusbar.agents_in_tab(window:active_tab())
 		if #agents == 0 then
 			return
 		end
-		local next_index = 1
-		for i, item in ipairs(agents) do
-			if item.pane:pane_id() == pane:pane_id() then
-				next_index = i % #agents + 1
-			end
-		end
-		window:perform_action(act.SetPaneZoomState(false), pane)
-		agents[next_index].pane:activate()
+		local i = current_index(agents, pane)
+		agent_view("show", agents[i and (i % #agents + 1) or 1].pane:pane_id())
 	end)
 end
 
--- LEADER+数字: n 番目のエージェントへ (タブバーの ① ② と同じ番号)
+-- LEADER+数字: n 番目のエージェントを表示する (右側のカード・タブバーの ① ② と同じ番号)
 function M.focus_agent(n)
-	return wezterm.action_callback(function(window, pane)
+	return wezterm.action_callback(function(window)
 		local item = statusbar.agents_in_tab(window:active_tab())[n]
 		if item then
-			window:perform_action(act.SetPaneZoomState(false), pane)
-			item.pane:activate()
+			agent_view("show", item.pane:pane_id())
 		end
+	end)
+end
+
+-- LEADER+z: エージェントを見ていれば戻し、見ていなければ最後に見たエージェントを表示する。
+-- エージェントのいないタブでは、ふつうのペインの拡大・縮小
+function M.toggle_agent()
+	return wezterm.action_callback(function(window, pane)
+		local tab = window:active_tab()
+		local agents = statusbar.agents_in_tab(tab)
+		if #agents == 0 then
+			window:perform_action(act.TogglePaneZoomState, pane)
+			return
+		end
+		if current_index(agents, pane) then
+			hide_agents(tab)
+			return
+		end
+		local target = agents[1]
+		local f = io.open(string.format("%s/shown-%d", statusbar.state_dir, M.home_pane(tab, pane):pane_id()), "r")
+		if f then
+			local last = tonumber(f:read("*l") or "")
+			f:close()
+			for _, item in ipairs(agents) do
+				if item.pane:pane_id() == last then
+					target = item
+				end
+			end
+		end
+		agent_view("show", target.pane:pane_id())
 	end)
 end
 
@@ -347,6 +556,9 @@ function M.pick_workspace()
 		local summary, order = {}, {}
 		for _, w in ipairs(wezterm.mux.all_windows()) do
 			local name = w:get_workspace()
+			if name == M.STASH then
+				goto continue
+			end
 			if not summary[name] then
 				summary[name] = { envs = 0, states = {} }
 				table.insert(order, name)
@@ -359,6 +571,7 @@ function M.pick_workspace()
 					table.insert(summary[name].states, statusbar.STATE_ICON[item.agent.state] or "·")
 				end
 			end
+			::continue::
 		end
 		local current = window:active_workspace()
 		local choices = {}
@@ -411,22 +624,50 @@ function M.focus_dashboard()
 	end)
 end
 
--- Cmd+w: タブを閉じる。エージェント一覧タブは閉じない
+-- Cmd+w: タブを閉じる。エージェント一覧タブは閉じない。
+-- エージェントは見えないワークスペースにいてタブを閉じても止まらないので、確認してから一緒に止める
 function M.close_tab()
 	return wezterm.action_callback(function(window, pane)
-		if M.is_dashboard(window:active_tab()) then
+		local tab = window:active_tab()
+		if M.is_dashboard(tab) then
 			window:toast_notification("agents", "エージェント一覧タブは閉じられません", nil, 2000)
 			return
 		end
-		window:perform_action(act.CloseCurrentTab({ confirm = true }), pane)
+		local agents = statusbar.agents_in_tab(tab)
+		if #agents == 0 then
+			window:perform_action(act.CloseCurrentTab({ confirm = true }), pane)
+			return
+		end
+		window:perform_action(
+			act.InputSelector({
+				title = string.format("タブを閉じて、エージェント %d 個も止めますか?", #agents),
+				choices = { { id = "no", label = "閉じない" }, { id = "yes", label = "閉じて止める" } },
+				action = wezterm.action_callback(function(win, p, id)
+					if id ~= "yes" then
+						return
+					end
+					for _, item in ipairs(agents) do
+						wezterm.run_child_process({
+							wezterm.executable_dir .. "/wezterm", "cli", "kill-pane", "--pane-id", tostring(item.pane:pane_id()),
+						})
+					end
+					win:perform_action(act.CloseCurrentTab({ confirm = false }), p)
+				end),
+			}),
+			pane
+		)
 	end)
 end
 
--- LEADER+X: ペインを閉じる。エージェント一覧のペインは閉じない
+-- LEADER+X: ペインを閉じる。エージェント一覧のペインは閉じない。作業環境の nvim では真ん中のもの (ファイル・ターミナル) を閉じる
 function M.close_pane()
 	return wezterm.action_callback(function(window, pane)
 		if role_of(pane) == "dashboard" then
 			window:toast_notification("agents", "エージェント一覧は閉じられません", nil, 2000)
+			return
+		end
+		if role_of(pane) == "main" then
+			M.nvim_call(pane, "close")
 			return
 		end
 		window:perform_action(act.CloseCurrentPane({ confirm = true }), pane)

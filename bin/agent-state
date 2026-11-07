@@ -5,7 +5,8 @@ Usage (stdin is the JSON the agent passes to the hook / status line):
   agent-state hook claude|codex   from a Claude Code or Codex hook
   agent-state statusline          from the Claude Code status line script
 
-Writes ~/.local/state/agents/<WEZTERM_PANE>.json (state, session id, model, context) and
+Writes ~/.local/state/agents/<WEZTERM_PANE>.json (state, session id, model, context, what it is working on,
+and its home: the work environment pane it belongs to, from AGENT_HOME) and
 ~/.local/state/agents/quota-<tool>-<profile>.json (5h / weekly rate limits). WezTerm only reads
 these files. Outside WezTerm (no WEZTERM_PANE) only the quota files are updated.
 Never prints anything and always exits 0: a hook's stdout can be fed back to the agent.
@@ -66,6 +67,10 @@ def update_pane(fields):
         return
     data = read_json(path)
     data.update({k: v for k, v in fields.items() if v is not None})
+    data["pane"] = int(os.environ["WEZTERM_PANE"])
+    # wezterm/workspace.lua starts each agent with the pane it belongs to (bin/agent-view)
+    if os.environ.get("AGENT_HOME", "").isdigit():
+        data["home"] = int(os.environ["AGENT_HOME"])
     data["updated_at"] = int(time.time())
     write_json(path, data)
 
@@ -141,6 +146,51 @@ def codex_details(transcript):
     return model, ctx_pct, windows
 
 
+def one_line(text, limit):
+    text = " ".join(str(text or "").split())
+    return text[: limit - 1] + "…" if len(text) > limit else text
+
+
+def last_prompt(tool, transcript):
+    """The last thing the user asked, from the transcript (to show what a resumed session is about).
+    Tool output makes transcripts large, so read further back than for the model / limits."""
+    for line in reversed(tail_lines(transcript, 4 * 1024 * 1024)):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if tool == "claude" and entry.get("type") == "user" and not entry.get("isMeta"):
+            content = (entry.get("message") or {}).get("content")
+            if isinstance(content, list):
+                content = " ".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text")
+            if isinstance(content, str) and content.strip() and not content.lstrip().startswith("<"):
+                return content
+        payload = entry.get("payload") or {}
+        if tool == "codex" and payload.get("type") == "user_message" and payload.get("message"):
+            return payload["message"]
+        if tool == "codex" and payload.get("type") == "message" and payload.get("role") == "user":
+            # 先頭の AGENTS.md や <environment_context> などの自動で付く入力は飛ばす
+            texts = [c.get("text", "") for c in payload.get("content") or [] if isinstance(c, dict)]
+            texts = [t for t in texts if t.strip() and not t.lstrip().startswith(("<", "# AGENTS.md"))]
+            if texts:
+                return texts[-1]
+    return None
+
+
+def activity(data):
+    """What a tool call is doing, e.g. "Edit statusbar.lua" / "Bash npm test"."""
+    name = data.get("tool_name") or ""
+    args = data.get("tool_input") or {}
+    if not isinstance(args, dict):
+        return name
+    target = args.get("file_path") or args.get("path") or args.get("notebook_path")
+    if target:
+        target = os.path.basename(str(target).rstrip("/"))
+    else:
+        target = args.get("description") or args.get("command") or args.get("pattern") or args.get("url") or ""
+    return one_line(f"{name} {target}".strip(), 80)
+
+
 def handle_hook(tool, data):
     event = data.get("hook_event_name") or ""
     path = pane_path()
@@ -164,6 +214,15 @@ def handle_hook(tool, data):
         "cwd": data.get("cwd") if event == "SessionStart" else None,
         "state": state,
     }
+    if event == "UserPromptSubmit" and data.get("prompt"):
+        fields["task"] = one_line(data["prompt"], 200)
+    elif event == "SessionStart" and data.get("transcript_path"):
+        fields["task"] = one_line(last_prompt(tool, data["transcript_path"]), 200) or None
+    if event == "PreToolUse":
+        fields["activity"] = activity(data)
+    elif state == "done" or event == "UserPromptSubmit":
+        # 終わったら前のツール名を残さない (入力待ちでは、許可を求めているツールとして残す)
+        fields["activity"] = ""
     if tool == "codex":
         model, ctx_pct, windows = codex_details(data.get("transcript_path") or "")
         fields.update({"model": model or data.get("model"), "ctx_pct": ctx_pct})

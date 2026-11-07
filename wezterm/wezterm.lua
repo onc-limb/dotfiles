@@ -49,7 +49,8 @@ config.colors = {
 	brights = palette.brights,
 }
 -- 下のタブバー: 左端にワークスペース名、右側にエージェントの状態・モデルとコンテキスト・利用制限 (statusbar.lua)
--- 更新のついでに、ワークスペースにエージェント一覧タブがなければ作り (workspace.lua)、
+-- 更新のついでに、ワークスペースにエージェント一覧タブ・エージェントの状態カードがなければ作り、
+-- タブを閉じて取り残されたエージェントを止め (workspace.lua)、
 -- 構成が変わっていれば復旧用に保存する (session.lua)
 local workspace = require("workspace")
 local session = require("session")
@@ -59,6 +60,8 @@ require("statusbar").setup(config, function(window)
 		return
 	end
 	workspace.ensure_dashboard(window)
+	workspace.ensure_sidebars(window)
+	workspace.cleanup_agents()
 	session.save()
 end)
 

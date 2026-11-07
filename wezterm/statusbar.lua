@@ -1,7 +1,8 @@
 -- 下のタブバーの右側: エージェントの状態・モデルとコンテキスト・利用制限
 --
 -- 表示する情報は bin/agent-state が ~/.local/state/agents に書き出したファイルを読むだけ。
---   <ペインID>.json            : ペインで動いているエージェントの状態 / session_id / モデル / コンテキスト
+--   <ペインID>.json            : ペインで動いているエージェントの状態 / session_id / モデル / コンテキスト /
+--                                作業の概要 / home (所属する作業環境のペイン)
 --   quota-<tool>-<profile>.json : Claude / Codex の 5 時間・週次の利用制限 (profile = work / private)
 local wezterm = require("wezterm")
 local palette = require("palette")
@@ -31,7 +32,7 @@ local function read_json(path)
 	return nil
 end
 
--- ペインID -> エージェントの状態
+-- ペインID -> そのペインで動いているエージェントの状態
 function M.read_agents()
 	local agents = {}
 	local ok, paths = pcall(wezterm.read_dir, M.state_dir)
@@ -50,29 +51,27 @@ function M.read_agents()
 	return agents
 end
 
--- タブの中でエージェントが動いているペインを、画面上の並び順 (上→下、左→右) で返す。
--- LEADER+数字でのエージェント選択も同じ並び順を使う
+-- タブのエージェントを番号順 (起動した順) に返す。各要素: { pane, agent }。
+-- エージェントは普段は見えないワークスペースにいて、見ている間だけタブに移る (bin/agent-view)。
+-- そのため「タブの中にいるか」ではなく、状態ファイルの home (所属する作業環境のペイン) がタブの中にあるかで決める。
+-- LEADER+数字でのエージェント選択・右側のカードも同じ並び順を使う
 function M.agents_in_tab(tab, agents)
 	agents = agents or M.read_agents()
+	local in_tab = {}
+	for _, p in ipairs(tab:panes()) do
+		in_tab[p:pane_id()] = true
+	end
 	local list = {}
-	for _, info in ipairs(tab:panes_with_info()) do
-		local agent = agents[info.pane:pane_id()]
-		-- 起動直後で hook がまだ状態を書いていないエージェントも、ペインの user var で拾う
-		if not agent then
-			local vars = info.pane:get_user_vars()
-			if vars.role == "agent" then
-				agent = { tool = vars.tool, state = "idle" }
-			end
-		end
-		if agent then
-			table.insert(list, { pane = info.pane, info = info, agent = agent })
+	for id, agent in pairs(agents) do
+		local belongs = agent.home and in_tab[agent.home] or (not agent.home and in_tab[id])
+		-- 終了したエージェントの状態ファイルが残っていても拾わない
+		local ok, pane = pcall(wezterm.mux.get_pane, id)
+		if belongs and ok and pane then
+			table.insert(list, { pane = pane, agent = agent })
 		end
 	end
 	table.sort(list, function(a, b)
-		if a.info.left ~= b.info.left then
-			return a.info.left < b.info.left
-		end
-		return a.info.top < b.info.top
+		return a.pane:pane_id() < b.pane:pane_id()
 	end)
 	return list
 end
