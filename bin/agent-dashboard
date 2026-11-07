@@ -53,25 +53,58 @@ MARGIN = 2
 # ---------------------------------------------------------------- colors
 
 
-def load_palette():
-    colors = {
-        "fg": "#1F1F1F", "muted": "#6E6E6E", "accent": "#005FB8", "accent_fg": "#FFFFFF",
-        "surface": "#E6E6E6", "selection": "#ADD6FF", "ok": "#0B7A0B", "warn": "#9A6700", "error": "#B3261E",
-    }
+MODE_FILE = os.path.expanduser("~/.local/state/wezterm/theme")
+DEFAULT_COLORS = {
+    "light": {"fg": "#1F1F1F", "muted": "#6E6E6E", "accent": "#005FB8", "accent_fg": "#FFFFFF", "surface": "#E6E6E6",
+              "selection": "#ADD6FF", "ok": "#0B7A0B", "warn": "#9A6700", "error": "#B3261E"},
+    "dark": {"fg": "#E4E4E4", "muted": "#9A9DA6", "accent": "#4C9BF0", "accent_fg": "#0E1620", "surface": "#3A3D45",
+             "selection": "#264F78", "ok": "#5BC46A", "warn": "#E2B341", "error": "#F0605A"},
+}
+
+
+def current_mode():
+    """light / dark, the same file WezTerm and nvim read (LEADER+b switches it)."""
+    try:
+        with open(MODE_FILE) as f:
+            return "dark" if f.read().strip() == "dark" else "light"
+    except OSError:
+        return "light"
+
+
+def load_palette(mode):
+    """The colors of one mode: the "#RRGGBB" values inside `M.<mode> = { ... }` of palette.lua."""
+    colors = dict(DEFAULT_COLORS[mode])
     try:
         with open(PALETTE_FILE) as f:
-            seen = set()
-            for key, value in re.findall(r'^\s*(\w+)\s*=\s*"(#[0-9A-Fa-f]{6})"', f.read(), re.M):
-                if key in colors and key not in seen:
-                    colors[key] = value
-                    seen.add(key)
+            text = f.read()
+        m = re.search(rf"^M\.{mode} = \{{(.*?)^\}}", text, re.M | re.S)
+        seen = set()
+        for key, value in re.findall(r'^\s*(\w+)\s*=\s*"(#[0-9A-Fa-f]{6})"', m[1] if m else "", re.M):
+            if key in colors and key not in seen:
+                colors[key] = value
+                seen.add(key)
     except OSError:
         pass
     return colors
 
 
-PAL = load_palette()
-STATE_COLOR = {"waiting": PAL["warn"], "working": PAL["accent"], "done": PAL["ok"], "idle": PAL["muted"]}
+PAL = {}
+STATE_COLOR = {}
+_mode = None
+
+
+def refresh_palette():
+    """Follow LEADER+b: reload the colors when the mode changed (PAL / STATE_COLOR are updated in place)."""
+    global _mode
+    mode = current_mode()
+    if mode == _mode:
+        return
+    _mode = mode
+    PAL.update(load_palette(mode))
+    STATE_COLOR.update({"waiting": PAL["warn"], "working": PAL["accent"], "done": PAL["ok"], "idle": PAL["muted"]})
+
+
+refresh_palette()
 RESET = "\033[0m"
 
 
@@ -664,6 +697,7 @@ def sidebar_main():
     started, empty_since, cursor = time.time(), None, 0
     with terminal():
         while True:
+            refresh_palette()
             agents, shown = sidebar_collect()
             if agents:
                 empty_since = None
@@ -733,6 +767,7 @@ def main():
     cursor_key, flat = None, False
     with terminal():
         while True:
+            refresh_palette()
             workspace, envs = collect()
             items = build_items(envs, flat)
             keys = [it["key"] for it in items]

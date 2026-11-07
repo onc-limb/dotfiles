@@ -4,24 +4,45 @@ return {
 		lazy = false,
 		priority = 1000,
 		config = function()
-			-- WezTerm と同じ配色ファイルを読み、文字色やアクセントをそろえる (読めなければ vscode.nvim の既定色)
-			local ok, palette = pcall(dofile, vim.fn.expand("~/.config/wezterm/palette.lua"))
-			local overrides = {}
-			if ok and type(palette) == "table" then
-				overrides = {
-					vscFront = palette.fg,
-					vscSelection = palette.selection,
-				}
+			-- WezTerm と同じ配色ファイルを読み、ライト / ダークと文字色をそろえる (読めなければ vscode.nvim の既定色)
+			local function apply()
+				local ok, palette = pcall(dofile, vim.fn.expand("~/.config/wezterm/palette.lua"))
+				local overrides = {}
+				if ok and type(palette) == "table" then
+					vim.o.background = palette.mode
+					overrides = {
+						vscFront = palette.fg,
+						vscSelection = palette.selection,
+					}
+				end
+				require("vscode").setup({
+					-- vim.o.background に追従して Light / Dark テーマになる
+					-- 背景は描画せず wezterm の背景 (透過 + 壁紙) をそのまま見せる。
+					-- シェル / Claude Code のペインと見た目を揃えるため
+					transparent = true,
+					italic_comments = true,
+					color_overrides = overrides,
+				})
+				vim.cmd("colorscheme vscode")
 			end
-			require("vscode").setup({
-				-- vim.o.background (init.lua で light 指定) に追従して Light テーマになる
-				-- 背景は描画せず wezterm の背景 (透過 + 壁紙) をそのまま見せる。
-				-- シェル / Claude Code のペインと見た目を揃えるため
-				transparent = true,
-				italic_comments = true,
-				color_overrides = overrides,
-			})
-			vim.cmd("colorscheme vscode")
+			apply()
+			-- WezTerm の LEADER+b でモードのファイル (~/.local/state/wezterm/theme) が変わったら、開いている nvim も切り替える
+			local dir = vim.fn.expand("~/.local/state/wezterm")
+			vim.fn.mkdir(dir, "p")
+			local watcher = vim.uv.new_fs_event()
+			if watcher then
+				watcher:start(dir, {}, function(_, filename)
+					if filename == "theme" then
+						vim.schedule(function()
+							local mode = vim.o.background
+							apply()
+							if vim.o.background ~= mode then
+								vim.cmd("redraw!")
+							end
+						end)
+					end
+				end)
+			end
 		end,
 	},
 	-- ステータスライン (Git ブランチ・diff・診断を表示)

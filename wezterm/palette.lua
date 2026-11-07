@@ -1,7 +1,15 @@
--- WezTerm と nvim で共有する配色 (ライト基調 + 背景透過)
+-- WezTerm と nvim で共有する配色 (ライト / ダーク + 背景透過)
 -- nvim からも dofile で読むため、wezterm モジュールには依存しないこと。
--- 背景が透けても読めるよう、VSCode Light Modern より文字色を濃くし、ANSI 色も暗めに寄せている
-return {
+-- bin/agent-dashboard も読む (M.light = { … } / M.dark = { … } の中の "#RRGGBB" を正規表現で拾う)。
+--
+-- どちらのモードを使うかは ~/.local/state/wezterm/theme (light / dark) に書く。LEADER+b で切り替える (theme.lua)。
+-- 返すのは今のモードの配色 (mode にモード名が入る)
+local M = {}
+
+M.mode_file = (os.getenv("HOME") or "") .. "/.local/state/wezterm/theme"
+
+-- ライト: 背景が透けても読めるよう、VSCode Light Modern より文字色を濃くし、ANSI 色も暗めに寄せている
+M.light = {
 	-- 背景のぼかし (WezTerm の macos_window_background_blur)
 	blur = 30,
 
@@ -59,3 +67,70 @@ return {
 		"#767676", -- bright white
 	},
 }
+
+-- ダーク: 紺〜すみれ色の暗いグラデーション。ANSI 色は VSCode Dark Modern に近い明るめの色
+M.dark = {
+	blur = 30,
+
+	background = {
+		-- ベース: 左上の紺 → 右下の暗いすみれ色
+		base = { "#121826", "#161628", "#1E1624" },
+		base_opacity = 0.88,
+		glow_top = "#1C3356",
+		glow_bottom = "#3A1C3C",
+		glow_opacity = 0.35,
+	},
+
+	fg = "#E4E4E4",
+	bg = "#1E1E1E",
+	muted = "#9A9DA6",
+	accent = "#4C9BF0",
+	accent_fg = "#0E1620",
+	surface = "#3A3D45",
+	accent_soft = "#22344E",
+	hover = "#2C2F37",
+	tab_fg = "#B8BCC6",
+	selection = "#264F78",
+
+	ok = "#5BC46A",
+	warn = "#E2B341",
+	error = "#F0605A",
+
+	ansi = {
+		"#3C3C3C", -- black (暗い背景で見えるよう少し明るく)
+		"#F14C4C", -- red
+		"#23D18B", -- green
+		"#E5C07B", -- yellow
+		"#3B8EEA", -- blue
+		"#D670D6", -- magenta
+		"#29B8DB", -- cyan
+		"#CCCCCC", -- white
+	},
+	brights = {
+		"#7A7A7A", -- bright black
+		"#FF6B6B", -- bright red
+		"#4BE0A0", -- bright green
+		"#F5D78E", -- bright yellow
+		"#6CB0FF", -- bright blue
+		"#E591E5", -- bright magenta
+		"#5FD0EC", -- bright cyan
+		"#F2F2F2", -- bright white
+	},
+}
+
+-- 今のモード (ファイルがなければライト)
+function M.current_mode()
+	local f = io.open(M.mode_file, "r")
+	if not f then
+		return "light"
+	end
+	local mode = (f:read("*l") or ""):gsub("%s+", "")
+	f:close()
+	return mode == "dark" and "dark" or "light"
+end
+
+local mode = M.current_mode()
+local palette = M[mode]
+palette.mode = mode
+palette.mode_file = M.mode_file
+return palette

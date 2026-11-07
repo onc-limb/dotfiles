@@ -18,9 +18,10 @@ config.font = wezterm.font_with_fallback({
 	"Noto Color Emoji",
 })
 config.use_ime = true
--- 背景: 淡いグラデーションを重ね、下のデスクトップをぼかして透かす (プリセットは background.lua、LEADER+b で切り替え)。
+-- 背景: 淡い (ダークでは暗い) グラデーションを重ね、下のデスクトップをぼかして透かす。
+-- ライト / ダークは LEADER+b で切り替える (theme.lua)。
 -- nvim は背景を描画しないので、シェル・nvim・エージェントのどのペインも同じ背景になる
-require("background").setup(config)
+require("theme").setup(config)
 config.audible_bell = "SystemBeep"
 config.scrollback_lines = 10000
 

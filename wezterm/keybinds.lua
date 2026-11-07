@@ -61,8 +61,8 @@ return {
 				end),
 			}),
 		},
-		-- 背景のプリセットを選ぶ
-		{ key = "b", mods = "LEADER", action = require("background").pick() },
+		-- ライト / ダークの切り替え
+		{ key = "b", mods = "LEADER", action = require("theme").toggle() },
 		-- コマンドパレット表示
 		{ key = "p", mods = "SUPER", action = act.ActivateCommandPalette },
 		-- Tab移動

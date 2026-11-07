@@ -116,7 +116,7 @@ WezTerm は読むだけ、エージェント側は書くだけ。
 |---|---|
 | `Cmd+t` / `Cmd+Shift+t` | 今のディレクトリで作業環境のタブ (nvim + ツリー) / 素のシェルのタブ |
 | `Cmd+0` | エージェント一覧タブへ |
-| LEADER `b` | 背景のプリセットを選ぶ |
+| LEADER `b` | ライト / ダークの切り替え |
 | LEADER `w` / LEADER `W` | ワークスペースの選択（入るとエージェント一覧タブ） / 作成 |
 | LEADER `n` | worktree のタブを作る / 開く |
 | LEADER `c` / LEADER `x` | Claude / Codex を起動して全画面で表示（右に状態カードが出る） |
@@ -143,10 +143,11 @@ nvim 側:
 
 - フォント: SF Mono 14pt / 太さ 500（Orca と同じ）。Terminal.app 同梱のフォントを `font_dirs` で読む。
   アイコンは Symbols Nerd Font Mono で補う
-- 配色: `wezterm/palette.lua` に集約し、WezTerm と nvim の両方から読む。ライト系で文字は濃いめ
-- 背景: 透過 + ぼかしの上に淡いグラデーション。プリセット (Pastel / Aurora / Sunset / Sakura / Glass / 画像) を
-  LEADER `b` で切り替え、`~/.local/state/wezterm/background` に保存する。画像は `~/.config/wezterm/wallpaper.jpg|png`。
-  nvim は背景を描画しない
+- 配色: `wezterm/palette.lua` にライト (`M.light`) とダーク (`M.dark`) を並べ、WezTerm・nvim・エージェント一覧タブ・
+  状態カードがすべて同じファイルから読む。ライトは文字を濃いめ、ダークは ANSI 色を明るめにしている
+- ライト / ダーク: LEADER `b` で切り替え、`~/.local/state/wezterm/theme` に保存する。WezTerm は設定を読み直し、
+  nvim はこのファイルの変化を見て (`vim.uv.new_fs_event`) colorscheme を当て直し、一覧タブ・状態カードは再描画のたびに読む
+- 背景: 透過 + ぼかしの上にグラデーション (ライトは淡い青 → 桃、ダークは紺 → すみれ色)。nvim は背景を描画しない
 
 ## 実装メモ
 
@@ -172,7 +173,7 @@ nvim 側:
 | `bin/agent-dashboard` | エージェント一覧タブの中身 / `--sidebar` で作業環境の右の状態カード |
 | `bin/agent-view` | エージェントをタブに出して全画面にする / 見えないワークスペースに戻す |
 | `wezterm/palette.lua` | 配色（nvim・エージェント一覧タブからも読む） |
-| `wezterm/background.lua` | 背景のプリセットと切り替え |
+| `wezterm/theme.lua` | ライト / ダークの切り替えと背景 |
 | `wezterm/statusbar.lua` | 下のタブバーの右側 |
 | `wezterm/workspace.lua` | worktree タブ、エージェント、エージェント一覧タブ、キー操作 |
 | `wezterm/session.lua` | 復旧の保存と復元 |

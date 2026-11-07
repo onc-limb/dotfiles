@@ -1,7 +1,9 @@
--- VSCode Light Modern に合わせたライトテーマ
--- 暗い背景に戻す場合はここを "dark" にする (vscode.nvim が Dark テーマに追従)
+-- ライト / ダークは WezTerm と同じ (~/.config/wezterm/palette.lua が ~/.local/state/wezterm/theme を読む)。
+-- vscode.nvim が vim.o.background に追従して Light / Dark テーマになる。WezTerm で LEADER+b を押すと、
+-- 開いている nvim も切り替わる (plugin.lua の vscode.nvim の設定)。
 -- 背景は vscode.nvim の transparent = true で描画せず、wezterm の背景色をそのまま使う
-vim.o.background = "light"
+local palette_ok, palette = pcall(dofile, vim.fn.expand("~/.config/wezterm/palette.lua"))
+vim.o.background = palette_ok and type(palette) == "table" and palette.mode or "light"
 
 vim.opt.number = true
 vim.opt.cursorline = true -- 現在行をハイライト (VSCode の editor.lineHighlight 相当)
