@@ -1,3 +1,4 @@
+onboarding = false
 # Herdr (AI エージェント用ターミナルマルチプレクサ) の設定
 # https://herdr.dev/docs/configuration/
 #
@@ -8,8 +9,9 @@
 
 [theme]
 # WezTerm の ANSI パレット (VSCode Light Modern) をそのまま使い、ライト基調で統一する
-name = "terminal"
+name = "tokyo-night"
 
+auto_switch = false
 [theme.custom]
 # 背景を塗らず WezTerm の透過 (opacity 0.5 + blur) を通す
 panel_bg = "reset"
@@ -54,6 +56,14 @@ switch_workspace = "prefix+shift+1..9"
 switch_tab = "prefix+1..9"
 # サイドバーの表示切替 (既定値を明示)
 toggle_sidebar = "prefix+b"
+
+# キーバインド早見表 (Orca / herdr) をポップアップで開く。q で閉じる
+[[keys.command]]
+key = "prefix+i"
+type = "popup"
+command = "less ~/dotfiles/KEYBINDINGS.md"
+width = "80%"
+height = "90%"
 
 [ui]
 tab_bar_position = "top"
