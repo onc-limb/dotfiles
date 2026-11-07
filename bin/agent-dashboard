@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""List every agent in the current WezTerm workspace (the dashboard tab).
+
+Joins `wezterm cli list` with the per-pane state files written by bin/agent-state.
+Agents waiting for input come first. Press 1-9 to jump to that agent, r to refresh.
+"""
+import json
+import os
+import select
+import subprocess
+import sys
+import termios
+import time
+import tty
+
+STATE_DIR = os.path.expanduser("~/.local/state/agents")
+ORDER = {"waiting": 0, "working": 1, "done": 2, "idle": 3}
+ICON = {"working": "⏳ working", "waiting": "💬 waiting", "done": "✅ done", "idle": "·  idle"}
+REFRESH_SEC = 2
+
+
+def wezterm_panes():
+    try:
+        out = subprocess.run(
+            ["wezterm", "cli", "list", "--format", "json"], capture_output=True, text=True, timeout=5
+        ).stdout
+        return json.loads(out)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+
+
+def read_state(pane_id):
+    try:
+        with open(os.path.join(STATE_DIR, f"{pane_id}.json")) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def collect():
+    panes = wezterm_panes()
+    me = os.environ.get("WEZTERM_PANE")
+    workspace = next((p["workspace"] for p in panes if str(p["pane_id"]) == me), None)
+    rows = []
+    for p in panes:
+        if workspace and p["workspace"] != workspace:
+            continue
+        state = read_state(p["pane_id"])
+        if state:
+            rows.append((p, state))
+    rows.sort(key=lambda r: (ORDER.get(r[1].get("state"), 9), -(r[1].get("updated_at") or 0)))
+    return workspace, rows
+
+
+def age(ts):
+    if not ts:
+        return ""
+    sec = int(time.time() - ts)
+    if sec < 60:
+        return f"{sec}s"
+    if sec < 3600:
+        return f"{sec // 60}m"
+    return f"{sec // 3600}h"
+
+
+def render(workspace, rows):
+    out = ["\033[H\033[2J", f"\033[1mAgents\033[0m  workspace: {workspace or '?'}\n\n"]
+    if not rows:
+        out.append("  (エージェントは動いていません)\n")
+    for i, (p, s) in enumerate(rows[:9], 1):
+        tab = p.get("tab_title") or os.path.basename((p.get("cwd") or "").rstrip("/"))
+        ctx = f"{s['ctx_pct']}%" if s.get("ctx_pct") is not None else ""
+        out.append(
+            f"  {i}  {tab[:24]:<24} {s.get('tool', '?'):<7} {ICON.get(s.get('state'), '·'):<11}"
+            f" {(s.get('model') or '')[:14]:<14} {ctx:>4}  {age(s.get('updated_at')):>4}\n"
+        )
+    out.append("\n  \033[2m1-9: そのエージェントへ移動   r: 更新\033[0m\n")
+    sys.stdout.write("".join(out))
+    sys.stdout.flush()
+
+
+def jump(pane):
+    subprocess.run(["wezterm", "cli", "activate-tab", "--tab-id", str(pane["tab_id"])], capture_output=True)
+    subprocess.run(["wezterm", "cli", "activate-pane", "--pane-id", str(pane["pane_id"])], capture_output=True)
+
+
+def main():
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    tty.setcbreak(fd)
+    sys.stdout.write("\033[?25l")  # hide cursor
+    try:
+        while True:
+            workspace, rows = collect()
+            render(workspace, rows)
+            ready, _, _ = select.select([sys.stdin], [], [], REFRESH_SEC)
+            if not ready:
+                continue
+            key = sys.stdin.read(1)
+            if key.isdigit() and 1 <= int(key) <= min(len(rows), 9):
+                jump(rows[int(key) - 1][0])
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write("\033[?25h")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

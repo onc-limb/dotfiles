@@ -7,130 +7,16 @@ local IM_ROMAN = "com.apple.inputmethod.Kotoeri.RomajiTyping.Roman"
 
 -- Claude Code のトランスクリプトモード (Ctrl+O) に入るとき、入力ソースを英数にする。
 -- 日本語入力のままだと j / k などのキーが効かないため。Claude Code 以外のペインでは素通しする。
--- Herdr 越しに Claude Code を動かしている場合は前面プロセスが herdr になるので、それも対象にする。
 -- Ctrl+O はトグルなので抜けるときも英数になる (日本語で指示を打つときは手動で切り替える)
 local function claude_transcript_toggle(window, pane)
 	local proc = pane:get_foreground_process_name() or ""
-	if proc:find("claude", 1, true) or proc:find("herdr", 1, true) then
+	if proc:find("claude", 1, true) then
 		wezterm.run_child_process({ IM_SELECT, IM_ROMAN })
 	end
 	window:perform_action(act.SendKey({ key = "o", mods = "CTRL" }), pane)
 end
 
--- ペインの役割 (agent / editor / shell) をタブ内で管理する。
--- WezTerm タブ = プロジェクトの中に、Herdr (agent)・nvim (editor)・自分用 zsh (shell) を
--- 1 つずつ置き、役割ごとのキーで「そのペインへ移動してズーム」する。ペインが無ければその場で作る。
--- 役割はペイン起動時にシェルから OSC 1337 SetUserVar で role=<役割> を書き込み、
--- pane:get_user_vars().role で探す (Lua テーブルと違い設定の自動リロードで消えない)。
-local function set_role_cmd(role)
-	return string.format([[printf '\033]1337;SetUserVar=role=%%s\a' "$(printf %%s %s | base64)"]], role)
-end
-
--- タブ内で role のペインを探す。agent は古いタブ (role 未設定) でも見つかるよう
--- Herdr の前面プロセス、それも無ければ role 未設定の最初のペインにフォールバックする
-local function find_role_pane(tab, role)
-	local panes = tab:panes()
-	for _, p in ipairs(panes) do
-		if p:get_user_vars().role == role then
-			return p
-		end
-	end
-	if role ~= "agent" then
-		return nil
-	end
-	for _, p in ipairs(panes) do
-		local proc = p:get_foreground_process_name() or ""
-		if proc:find("herdr", 1, true) then
-			return p
-		end
-	end
-	-- ASSUMPTION: Herdr を使っていないタブでは、役割の付いていない最初のペインを agent 扱いにする
-	for _, p in ipairs(panes) do
-		if not p:get_user_vars().role then
-			return p
-		end
-	end
-	return panes[1]
-end
-
--- editor / shell のペインを作る。最終的なレイアウトが
---   左: agent / 右上: editor / 右下: shell
--- になるよう、作る順番に関わらず分割元と方向を決める。
--- ログインシェル経由で起動して PATH (homebrew / mise) を引き継ぐ。
--- known には作ったばかりのペインを { editor = pane } / { shell = pane } の形で渡せる。
--- 役割タグはペイン内のシェルが書き込むため、split 直後は find_role_pane で見つからない
-local function spawn_role_pane(window, tab, role, origin_pane, known)
-	known = known or {}
-	local agent = find_role_pane(tab, "agent")
-	local editor = known.editor or find_role_pane(tab, "editor")
-	local shell = known.shell or find_role_pane(tab, "shell")
-	-- cwd はプロジェクトルート (= Herdr を起動した agent ペインの cwd) に揃える
-	local cwd = (agent or origin_pane):get_current_working_dir()
-
-	local base, direction = agent, "Right"
-	if role == "editor" and shell then
-		base, direction = shell, "Top"
-	elseif role == "shell" and editor then
-		base, direction = editor, "Bottom"
-	end
-
-	local cmd
-	if role == "editor" then
-		-- g:start_with_explorer は nvim 側 (plugin.lua の oil 設定) で見て neo-tree を左に開く。
-		-- nvim 終了後に元のペインへフォーカスを戻し、シェルが終わってペインが閉じる
-		cmd = string.format(
-			"%s; nvim --cmd 'let g:start_with_explorer = 1'; wezterm cli activate-pane --pane-id %d",
-			set_role_cmd("editor"),
-			origin_pane:pane_id()
-		)
-	else
-		cmd = set_role_cmd("shell") .. "; exec /bin/zsh -l"
-	end
-
-	-- ズーム中に分割すると新しいペインが見えないので、分割前にズームを解除する
-	window:perform_action(act.SetPaneZoomState(false), base)
-	return base:split({
-		direction = direction,
-		size = 0.5,
-		cwd = cwd and cwd.file_path or nil,
-		args = { "/bin/zsh", "-lic", cmd },
-	})
-end
-
--- 指定ペインをズーム表示する。
--- ズームはタブ単位の状態で、ズーム中に別ペインを activate してもズーム対象は変わらず、
--- ズーム済みのタブに SetPaneZoomState(true) を送っても何も起きない。
--- そのため一度解除してから対象を activate し、ズームし直す
-local function zoom_pane(window, target)
-	window:perform_action(act.SetPaneZoomState(false), target)
-	target:activate()
-	window:perform_action(act.SetPaneZoomState(true), target)
-end
-
--- 役割のペインへ移動してズーム表示する (無ければ作る)
-local function focus_role(role)
-	return wezterm.action_callback(function(window, pane)
-		local tab = window:active_tab()
-		local target = find_role_pane(tab, role)
-		if not target then
-			target = spawn_role_pane(window, tab, role, pane)
-		end
-		zoom_pane(window, target)
-	end)
-end
-
--- 固定レイアウト (左: agent / 右上: editor / 右下: shell) に展開する。
--- 大きいモニターに繋いだときに 3 つを並べて見る用。足りないペインは作り、ズームは解除する。
--- agent だけに戻すときは Cmd+a (agent をズーム)
-local function show_layout(window, pane)
-	local tab = window:active_tab()
-	local editor = find_role_pane(tab, "editor") or spawn_role_pane(window, tab, "editor", pane)
-	if not find_role_pane(tab, "shell") then
-		spawn_role_pane(window, tab, "shell", pane, { editor = editor })
-	end
-	window:perform_action(act.SetPaneZoomState(false), pane)
-	pane:activate()
-end
+local workspace = require("workspace")
 
 return {
 	keys = {
@@ -187,8 +73,8 @@ return {
 		-- ウィンドウ新規作成 (aerospace で別画面/ワークスペースに wezterm を並べる用)
 		-- disable_default_key_bindings = true でデフォルトの Cmd+N が消えているため明示定義
 		{ key = "n", mods = "SUPER", action = act.SpawnWindow },
-		-- Tabを閉じる
-		{ key = "w", mods = "SUPER", action = act({ CloseCurrentTab = { confirm = true } }) },
+		-- Tabを閉じる (エージェント一覧タブは閉じない)
+		{ key = "w", mods = "SUPER", action = workspace.close_tab() },
 		{ key = "}", mods = "LEADER", action = act({ MoveTabRelative = 1 }) },
 
 		-- 画面フルスクリーン切り替え
@@ -212,43 +98,22 @@ return {
 		-- Pane作成 leader + r or d
 		{ key = "d", mods = "LEADER", action = act.SplitVertical({ domain = "CurrentPaneDomain" }) },
 		{ key = "r", mods = "LEADER", action = act.SplitHorizontal({ domain = "CurrentPaneDomain" }) },
-		-- 役割ペインへ移動してズーム (無ければ作る)。Cmd+文字はターミナルへ届かないので prefix 不要
-		-- Cmd+a: Herdr (agent) / Cmd+e: nvim (editor) / Cmd+s: 自分用シェル (shell)
-		{ key = "a", mods = "SUPER", action = focus_role("agent") },
-		{ key = "e", mods = "SUPER", action = focus_role("editor") },
-		{ key = "s", mods = "SUPER", action = focus_role("shell") },
-		-- 従来の leader + e も editor として残す
-		{ key = "e", mods = "LEADER", action = focus_role("editor") },
-		-- 固定レイアウト (左 agent / 右上 editor / 右下 shell) に展開。大きいモニター向け。戻すのは Cmd+a
-		{ key = "l", mods = "SUPER", action = wezterm.action_callback(show_layout) },
+		-- メインの nvim / エージェントのペインへ。Cmd+文字はターミナルへ届かないので prefix 不要
+		-- Cmd+e: メインの nvim / Cmd+a: エージェント (押すたびに次のエージェントへ)
+		{ key = "e", mods = "SUPER", action = workspace.focus_main() },
+		{ key = "a", mods = "SUPER", action = workspace.cycle_agent() },
+		{ key = "e", mods = "LEADER", action = workspace.focus_main() },
+		-- エージェント一覧タブへ
+		{ key = "0", mods = "SUPER", action = workspace.focus_dashboard() },
+		-- エージェントを起動 (右側に縦に並ぶ)。leader + c: Claude Code / leader + x: Codex
+		{ key = "c", mods = "LEADER", action = workspace.launch_agent("claude") },
+		{ key = "x", mods = "LEADER", action = workspace.launch_agent("codex") },
 		-- Claude Code のトランスクリプトモード切替。入力ソースを英数にしてから Ctrl+O を送る
 		{ key = "o", mods = "CTRL", action = wezterm.action_callback(claude_transcript_toggle) },
-		-- プロジェクト用のタブを開いて Herdr を起動 leader + n
-		-- タブ名 = プロジェクト名 (Herdr の名前付きセッション名) として固定し、
-		-- その中の左サイドバーに Claude Code / Codex のセッションを縦に並べる
-		{
-			key = "n",
-			mods = "LEADER",
-			action = act.PromptInputLine({
-				description = "(herdr) Project / session name:",
-				action = wezterm.action_callback(function(window, pane, line)
-					if not line or line == "" then
-						return
-					end
-					local cwd = pane:get_current_working_dir()
-					local tab, new_pane = window:mux_window():spawn_tab({
-						cwd = cwd and cwd.file_path or nil,
-						-- ログインシェル経由で起動して PATH (~/.local/bin, homebrew) を引き継ぐ
-						-- 起動前に role=agent を書き込み、Cmd+a で戻れるようにする
-						args = { "/bin/zsh", "-lic", set_role_cmd("agent") .. "; exec herdr session attach " .. line },
-					})
-					tab:set_title(line)
-					new_pane:activate()
-				end),
-			}),
-		},
-		-- Paneを閉じる leader + x
-		{ key = "x", mods = "LEADER", action = act({ CloseCurrentPane = { confirm = true } }) },
+		-- worktree のタブを開く / 作る leader + n
+		{ key = "n", mods = "LEADER", action = workspace.pick_worktree() },
+		-- Paneを閉じる leader + X (leader + x は Codex の起動。エージェント一覧のペインは閉じない)
+		{ key = "X", mods = "LEADER|SHIFT", action = workspace.close_pane() },
 		-- Pane移動 leader + hlkj
 		{ key = "h", mods = "LEADER", action = act.ActivatePaneDirection("Left") },
 		{ key = "l", mods = "LEADER", action = act.ActivatePaneDirection("Right") },
@@ -275,6 +140,17 @@ return {
 		{ key = "7", mods = "SUPER", action = act.ActivateTab(6) },
 		{ key = "8", mods = "SUPER", action = act.ActivateTab(7) },
 		{ key = "9", mods = "SUPER", action = act.ActivateTab(-1) },
+
+		-- エージェントを番号で選ぶ leader + 1..9 (タブバーの ① ② と同じ番号)
+		{ key = "1", mods = "LEADER", action = workspace.focus_agent(1) },
+		{ key = "2", mods = "LEADER", action = workspace.focus_agent(2) },
+		{ key = "3", mods = "LEADER", action = workspace.focus_agent(3) },
+		{ key = "4", mods = "LEADER", action = workspace.focus_agent(4) },
+		{ key = "5", mods = "LEADER", action = workspace.focus_agent(5) },
+		{ key = "6", mods = "LEADER", action = workspace.focus_agent(6) },
+		{ key = "7", mods = "LEADER", action = workspace.focus_agent(7) },
+		{ key = "8", mods = "LEADER", action = workspace.focus_agent(8) },
+		{ key = "9", mods = "LEADER", action = workspace.focus_agent(9) },
 
 		-- QuickSelect: 画面上のパス・URL・ハッシュ等をキーボードだけで選んでコピー
 		{ key = "f", mods = "LEADER", action = act.QuickSelect },

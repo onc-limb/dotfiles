@@ -56,6 +56,13 @@ function M.agents_in_tab(tab, agents)
 	local list = {}
 	for _, info in ipairs(tab:panes_with_info()) do
 		local agent = agents[info.pane:pane_id()]
+		-- 起動直後で hook がまだ状態を書いていないエージェントも、ペインの user var で拾う
+		if not agent then
+			local vars = info.pane:get_user_vars()
+			if vars.role == "agent" then
+				agent = { tool = vars.tool, state = "idle" }
+			end
+		end
 		if agent then
 			table.insert(list, { pane = info.pane, info = info, agent = agent })
 		end
@@ -194,10 +201,14 @@ function M.right_status(window, pane)
 	return wezterm.format(cells)
 end
 
-function M.setup(config)
+-- on_update: タブバーの更新 (毎秒) のついでに呼ぶ処理 (エージェント一覧タブの補充、セッションの保存)
+function M.setup(config, on_update)
 	config.tab_bar_at_bottom = true
 	config.status_update_interval = 1000
 	wezterm.on("update-right-status", function(window, pane)
+		if on_update then
+			on_update(window, pane)
+		end
 		window:set_left_status("")
 		window:set_right_status(M.right_status(window, pane))
 	end)

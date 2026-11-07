@@ -64,7 +64,11 @@ local SOLID_LEFT_ARROW = wezterm.nerdfonts.ple_left_half_circle_thick
 local SOLID_RIGHT_ARROW = wezterm.nerdfonts.ple_right_half_circle_thick
 
 -- 下のタブバー: 右側にエージェントの状態・モデルとコンテキスト・利用制限・ワークスペース名 (statusbar.lua)
-require("statusbar").setup(config)
+-- 更新のついでに、ワークスペースにエージェント一覧タブがなければ作る (workspace.lua)
+local workspace = require("workspace")
+require("statusbar").setup(config, function(window)
+	workspace.ensure_dashboard(window)
+end)
 
 wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
 	local background = palette.surface
@@ -75,13 +79,14 @@ wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_wid
 		foreground = palette.accent_fg
 	end
 	local edge_foreground = background
-	-- タブ名が明示的に設定されていればそれを優先 (LEADER+n の Herdr プロジェクトタブなど)。
+	-- タブ名が明示的に設定されていればそれを優先 (LEADER+n の worktree タブ = worktree 名)。
 	-- 未設定ならアクティブペインのタイトル (Claude Code のセッション名など)
 	local name = tab.tab_title
 	if not name or name == "" then
 		name = tab.active_pane.title
 	end
-	local title = "   " .. wezterm.truncate_right(name, max_width - 1) .. "   "
+	-- 先頭に Cmd+数字 で選べる番号を付ける
+	local title = "  " .. (tab.tab_index + 1) .. " " .. wezterm.truncate_right(name, max_width - 6) .. "  "
 	return {
 		{ Background = { Color = edge_background } },
 		{ Foreground = { Color = edge_foreground } },
