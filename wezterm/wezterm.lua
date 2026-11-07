@@ -2,18 +2,25 @@ local wezterm = require("wezterm")
 local config = wezterm.config_builder()
 
 config.automatically_reload_config = true
--- シェル / Claude Code と nvim で共通 (VSCode の macOS 既定 12 より少し大きめ)
-config.font_size = 13.0
+-- 配色・透過は palette.lua に集約 (nvim からも同じファイルを読む)
+local palette = require("palette")
+
+-- Orca のターミナルと同じ SF Mono 14pt / 太さ 500。
+-- SF Mono は Terminal.app の中にしか入っていないため、そのフォントフォルダを追加で読む。
+-- アイコンは Symbols Nerd Font Mono、日本語はヒラギノで補う
+config.font_dirs = { "/System/Applications/Utilities/Terminal.app/Contents/Resources/Fonts" }
+config.font_size = 14.0
 config.font = wezterm.font_with_fallback({
-	"FiraCode Nerd Font",
+	{ family = "SF Mono", weight = "Medium" },
+	"Symbols Nerd Font Mono",
 	"Hiragino Sans",
 	"Noto Sans CJK JP",
 	"Noto Color Emoji",
 })
-
 config.use_ime = true
--- 背景は不透明 (透過を戻す場合は window_background_opacity / macos_window_background_blur を設定)
-config.window_background_opacity = 1.0
+-- 背景を透かしてぼかす (nvim は背景を描画しないので同じ見た目になる)
+config.window_background_opacity = palette.opacity
+config.macos_window_background_blur = palette.blur
 config.audible_bell = "SystemBeep"
 config.scrollback_lines = 10000
 
@@ -35,43 +42,21 @@ config.use_fancy_tab_bar = false
 -- タブの追加ボタンを非表示
 config.show_new_tab_button_in_tab_bar = false
 
--- VSCode Light Modern のカラーパレット
 config.colors = {
-	foreground = "#3B3B3B",
-	background = "#FFFFFF",
-	cursor_bg = "#005FB8",
-	cursor_fg = "#FFFFFF",
-	cursor_border = "#005FB8",
-	selection_fg = "#3B3B3B",
-	selection_bg = "#ADD6FF",
-
-	ansi = {
-		"#000000", -- black
-		"#CD3131", -- red
-		"#00BC00", -- green
-		"#949800", -- yellow
-		"#0451A5", -- blue
-		"#BC05BC", -- magenta
-		"#0598BC", -- cyan
-		"#555555", -- white
-	},
-	brights = {
-		"#666666", -- bright black
-		"#CD3131", -- bright red
-		"#14CE14", -- bright green
-		"#B5BA00", -- bright yellow
-		"#0451A5", -- bright blue
-		"#BC05BC", -- bright magenta
-		"#0598BC", -- bright cyan
-		"#8C8C8C", -- bright white (VSCode 定義は #A5A5A5 だが白背景で読めるよう暗色化)
-	},
-
+	foreground = palette.fg,
+	background = palette.bg,
+	cursor_bg = palette.accent,
+	cursor_fg = palette.accent_fg,
+	cursor_border = palette.accent,
+	selection_fg = palette.fg,
+	selection_bg = palette.selection,
+	ansi = palette.ansi,
+	brights = palette.brights,
 	tab_bar = {
 		background = "none",
 		inactive_tab_edge = "none",
 	},
 }
-
 -- タブの形をカスタマイズ
 -- タブの左側の装飾
 local SOLID_LEFT_ARROW = wezterm.nerdfonts.ple_left_half_circle_thick
@@ -104,28 +89,28 @@ wezterm.on("update-right-status", function(window, pane)
 	end
 	window:set_left_status("")
 	window:set_right_status(wezterm.format({
-		{ Foreground = { Color = "#005FB8" } },
+		{ Foreground = { Color = palette.accent } },
 		{ Text = SOLID_LEFT_ARROW },
-		{ Background = { Color = "#005FB8" } },
-		{ Foreground = { Color = "#FFFFFF" } },
+		{ Background = { Color = palette.accent } },
+		{ Foreground = { Color = palette.accent_fg } },
 		{ Text = " " .. workspace .. " " },
 		"ResetAttributes",
-		{ Foreground = { Color = "#005FB8" } },
+		{ Foreground = { Color = palette.accent } },
 		{ Text = SOLID_RIGHT_ARROW .. " " },
-		{ Foreground = { Color = "#005FB8" } },
+		{ Foreground = { Color = palette.accent } },
 		{ Text = mode },
-		{ Foreground = { Color = "#616161" } },
+		{ Foreground = { Color = palette.muted } },
 		{ Text = mood .. "  " .. date .. "  " },
 	}))
 end)
 
 wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
-	local background = "#ECECEC"
-	local foreground = "#3B3B3B"
+	local background = palette.surface
+	local foreground = palette.fg
 	local edge_background = "none"
 	if tab.is_active then
-		background = "#005FB8"
-		foreground = "#FFFFFF"
+		background = palette.accent
+		foreground = palette.accent_fg
 	end
 	local edge_foreground = background
 	-- タブ名が明示的に設定されていればそれを優先 (LEADER+n の Herdr プロジェクトタブなど)。

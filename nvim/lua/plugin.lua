@@ -4,12 +4,22 @@ return {
 		lazy = false,
 		priority = 1000,
 		config = function()
+			-- WezTerm と同じ配色ファイルを読み、文字色やアクセントをそろえる (読めなければ vscode.nvim の既定色)
+			local ok, palette = pcall(dofile, vim.fn.expand("~/.config/wezterm/palette.lua"))
+			local overrides = {}
+			if ok and type(palette) == "table" then
+				overrides = {
+					vscFront = palette.fg,
+					vscSelection = palette.selection,
+				}
+			end
 			require("vscode").setup({
 				-- vim.o.background (init.lua で light 指定) に追従して Light テーマになる
 				-- 背景は描画せず wezterm の背景 (透過 + 壁紙) をそのまま見せる。
 				-- シェル / Claude Code のペインと見た目を揃えるため
 				transparent = true,
 				italic_comments = true,
+				color_overrides = overrides,
 			})
 			vim.cmd("colorscheme vscode")
 		end,
