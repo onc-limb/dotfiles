@@ -289,13 +289,22 @@ return {
 		config = function(_, opts)
 			require("oil").setup(opts)
 			-- 引数なしで nvim を起動した時もカレントディレクトリの oil 表示から始める。
-			-- wezterm の LEADER+e (--cmd 'let g:start_with_explorer = 1') からの起動時は
-			-- oil ではなく neo-tree を左に開き、VSCode のようにツリーからファイルを選ぶ
+			-- wezterm の worktree タブ (--cmd 'let g:start_with_explorer = 1') からの起動時は
+			-- 前回開いていたファイルを復元し、neo-tree を左に常駐させる (VSCode のエクスプローラー相当)
+			local worktree_session = require("worktree_session")
+			worktree_session.setup()
 			vim.api.nvim_create_autocmd("VimEnter", {
+				-- 復元したファイルでも filetype 判定や treesitter の autocmd が走るよう nested にする
+				nested = true,
 				callback = function()
 					if vim.fn.argc() == 0 and vim.api.nvim_buf_get_name(0) == "" then
 						if vim.g.start_with_explorer == 1 then
-							vim.cmd("Neotree left")
+							if worktree_session.restore() then
+								-- フォーカスは復元したファイルに残し、ツリーは表示だけする
+								vim.cmd("Neotree show left")
+							else
+								vim.cmd("Neotree left")
+							end
 						else
 							require("oil").open()
 						end
@@ -350,9 +359,55 @@ return {
 				end,
 				desc = "Explorer (focus / close)",
 			},
+			-- <Space> + E: ツリーを「変更されたファイル (git status)」表示に切り替える。
+			-- 変更表示のツリー上で押すと通常のファイル表示に戻す。変更表示では D でそのファイルの差分を開く
+			{
+				"<leader>E",
+				function()
+					local source = "git_status"
+					if vim.bo.filetype == "neo-tree" then
+						local state = require("neo-tree.sources.manager").get_state_for_window()
+						if state and state.name == "git_status" then
+							source = "filesystem"
+						end
+					end
+					require("neo-tree.command").execute({ action = "focus", source = source, position = "left" })
+				end,
+				desc = "Explorer (toggle git changes)",
+			},
 		},
 		opts = {
 			close_if_last_window = true, -- ツリーだけ残ったら nvim ごと閉じる
+			-- ツリーの上に「ファイル / 変更」の切り替えを表示する (ツリー上では < > でも切り替えられる)
+			source_selector = {
+				winbar = true,
+				sources = {
+					{ source = "filesystem", display_name = " Files" },
+					{ source = "git_status", display_name = " Changes" },
+				},
+			},
+			git_status = {
+				commands = {
+					-- カーソル下のファイルの差分を diffview で開く (cwd のリポジトリ基準)
+					open_diff = function(state)
+						local node = state.tree:get_node()
+						if not node or node.type ~= "file" then
+							return
+						end
+						vim.cmd(
+							"DiffviewOpen -C"
+								.. vim.fn.fnameescape(vim.fn.getcwd())
+								.. " -- "
+								.. vim.fn.fnameescape(node:get_id())
+						)
+					end,
+				},
+				window = {
+					mappings = {
+						["D"] = "open_diff",
+					},
+				},
+			},
 			filesystem = {
 				follow_current_file = { enabled = true }, -- 開いているファイルをツリー上で追跡
 				use_libuv_file_watcher = true, -- 外部変更 (Claude Code 等) を自動反映
@@ -778,6 +833,10 @@ return {
 		"MeanderingProgrammer/render-markdown.nvim",
 		dependencies = { "nvim-treesitter/nvim-treesitter", "nvim-tree/nvim-web-devicons" },
 		ft = { "markdown" },
+		-- <Space> + m: ソース表示とレンダリング表示を切り替える
+		keys = {
+			{ "<leader>m", "<cmd>RenderMarkdown toggle<CR>", ft = "markdown", desc = "Markdown render (toggle)" },
+		},
 		opts = {
 			-- ノーマルモードでは装飾表示、インサートモードに入った行は生のマークダウンに戻る
 			render_modes = { "n", "c", "t" },
@@ -818,6 +877,30 @@ return {
 		lazy = false,
 		opts = {
 			image = { enabled = true },
+			-- nvim の中のターミナル。メインの nvim からシェルへ行き来するため (WezTerm のペインは使わない)
+			terminal = {
+				win = { position = "bottom", height = 0.4 },
+			},
+		},
+		keys = {
+			-- Ctrl + / : ターミナルの開閉 (ターミナルの中からも閉じられる)。
+			-- 端末によって Ctrl+/ は Ctrl+_ として届くので両方に割り当てる
+			{
+				"<C-/>",
+				function()
+					Snacks.terminal.toggle()
+				end,
+				mode = { "n", "t" },
+				desc = "Terminal (toggle)",
+			},
+			{
+				"<C-_>",
+				function()
+					Snacks.terminal.toggle()
+				end,
+				mode = { "n", "t" },
+				desc = "Terminal (toggle)",
+			},
 		},
 	},
 }
