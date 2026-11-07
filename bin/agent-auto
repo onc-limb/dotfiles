@@ -57,6 +57,15 @@ if [ "$tool" = claude ]; then
   [ -n "$effort" ] && set -- --effort "$effort" "$@"
 fi
 
+# In WezTerm, match Claude's colors to WezTerm's light / dark mode (LEADER+b, ~/.local/state/wezterm/theme).
+# The -ansi themes draw with the terminal's 16 colors, so they also follow the palette (wezterm/palette.lua).
+# settings.json keeps "auto" for other terminals; --settings only applies to this session.
+if [ "$tool" = claude ] && [ -n "${WEZTERM_PANE:-}" ]; then
+  mode=$(head -n1 "$HOME/.local/state/wezterm/theme" 2>/dev/null || true)
+  [ "$mode" = light ] || mode=dark
+  set -- --settings "{\"theme\":\"$mode-ansi\"}" "$@"
+fi
+
 # Resolve the real binary, skipping anything that resolves back to this wrapper.
 self=$(realpath "$0")
 bin=""

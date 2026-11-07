@@ -12,7 +12,7 @@ It exits once the tab has no agents, which closes the column.
 Agents wait in a hidden workspace and are moved into their tab only while shown (bin/agent-view);
 an agent belongs to the tab that holds its home pane (the "home" field of its state file).
 Joins `wezterm cli list` with the per-pane state files written by bin/agent-state.
-Colors come from wezterm/palette.lua so the dashboard matches WezTerm and nvim.
+Colors come from wezterm/palette.lua (via palette.json) so the dashboard matches WezTerm and nvim.
 The background is left unpainted, so it is the pane's (palette.bg).
 
 Keys / mouse:
@@ -36,7 +36,6 @@ from urllib.parse import unquote, urlparse
 
 STATE_DIR = os.path.expanduser("~/.local/state/agents")
 HOME = os.path.expanduser("~")
-PALETTE_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "wezterm", "palette.lua")
 DASHBOARD_TITLE = "◆ agents"
 ORDER = {"waiting": 0, "working": 1, "done": 2, "idle": 3}
 STATE_LABEL = {"waiting": "入力待ち", "working": "作業中", "done": "完了", "idle": "待機"}
@@ -53,58 +52,35 @@ MARGIN = 2
 # ---------------------------------------------------------------- colors
 
 
-MODE_FILE = os.path.expanduser("~/.local/state/wezterm/theme")
+# Written by wezterm/theme.lua each time WezTerm loads its config (scheme picker / light-dark toggle)
+PALETTE_JSON = os.path.expanduser("~/.local/state/wezterm/palette.json")
 DEFAULT_COLORS = {
-    "light": {"fg": "#2F2A23", "muted": "#7D7466", "accent": "#2E6E70", "accent_fg": "#FBF7EE", "surface": "#E2D9C6",
-              "selection": "#EBD9A4", "ok": "#557A35", "warn": "#B0701A", "error": "#B04330"},
-    "dark": {"fg": "#E9E1D1", "muted": "#9E9483", "accent": "#72B5A9", "accent_fg": "#1B1915", "surface": "#3A342C",
-             "selection": "#4D4433", "ok": "#A3C173", "warn": "#E2AA4E", "error": "#E2735C"},
+    "bg": "#EEEEEA", "card": "#FAFAF7", "fg": "#141414", "muted": "#6A6A64", "accent": "#FF4F00",
+    "accent_fg": "#FFFFFF", "accent_text": "#D94300", "surface": "#DEDEDC", "selection": "#FFD8C2",
+    "ok": "#2D7A3E", "warn": "#B87400", "error": "#D62A1E",
 }
-
-
-def current_mode():
-    """light / dark, the same file WezTerm and nvim read (LEADER+b switches it)."""
-    try:
-        with open(MODE_FILE) as f:
-            return "dark" if f.read().strip() == "dark" else "light"
-    except OSError:
-        return "light"
-
-
-def load_palette(mode):
-    """The colors of one mode: the "#RRGGBB" values inside `M.<mode> = { ... }` of palette.lua."""
-    colors = dict(DEFAULT_COLORS[mode])
-    try:
-        with open(PALETTE_FILE) as f:
-            text = f.read()
-        m = re.search(rf"^M\.{mode} = \{{(.*?)^\}}", text, re.M | re.S)
-        seen = set()
-        for key, value in re.findall(r'^\s*(\w+)\s*=\s*"(#[0-9A-Fa-f]{6})"', m[1] if m else "", re.M):
-            if key in colors and key not in seen:
-                colors[key] = value
-                seen.add(key)
-    except OSError:
-        pass
-    return colors
-
-
-PAL = {}
+PAL = dict(DEFAULT_COLORS)
 STATE_COLOR = {}
-_mode = None
+_palette_mtime = None
 
 
 def refresh_palette():
-    """Follow LEADER+b: reload the colors when the mode changed (PAL / STATE_COLOR are updated in place)."""
-    global _mode
-    mode = current_mode()
-    if mode == _mode:
+    """Follow LEADER+b / LEADER+Shift+b: reload the colors when palette.json changed (updated in place)."""
+    global _palette_mtime
+    try:
+        mtime = os.path.getmtime(PALETTE_JSON)
+    except OSError:
+        mtime = None
+    if _palette_mtime is not None and mtime == _palette_mtime:
         return
-    _mode = mode
-    PAL.update(load_palette(mode))
-    STATE_COLOR.update({"waiting": PAL["warn"], "working": PAL["accent"], "done": PAL["ok"], "idle": PAL["muted"]})
+    _palette_mtime = mtime
+    data = read_json(PALETTE_JSON) or {}
+    PAL.clear()
+    PAL.update(DEFAULT_COLORS)
+    PAL.update({k: v for k, v in data.items() if k in DEFAULT_COLORS and isinstance(v, str)})
+    STATE_COLOR.update({"waiting": PAL["warn"], "working": PAL["accent_text"], "done": PAL["ok"], "idle": PAL["muted"]})
 
 
-refresh_palette()
 RESET = "\033[0m"
 
 
@@ -338,7 +314,7 @@ def age(ts):
 
 
 def pct_color(pct):
-    return PAL["error"] if pct >= 80 else PAL["warn"] if pct >= 60 else PAL["accent"]
+    return PAL["error"] if pct >= 80 else PAL["warn"] if pct >= 60 else PAL["accent_text"]
 
 
 def env_state(env):
@@ -350,24 +326,29 @@ def env_state(env):
 
 
 def card(w, title_line, body, selected=False):
-    """A rounded card of width w. title_line / body are Line objects (inner width w-4)."""
-    border = PAL["accent"] if selected else PAL["muted"]
+    """A card of width w: a filled panel (no ruled border) one step above the page background.
+    The selected card gets an accent edge on the left. title_line / body are Line objects (inner width w-4)."""
+    bg = PAL["card"]
+    edge = ("▌", PAL["accent"]) if selected else (" ", None)
     inner = w - 4
     out = []
-    top = Line().add("╭─ ", fg=border)
-    for text, fg, bg, bold in title_line.parts:
-        top.add(text, fg, bg, bold)
-    top.add(" ", fg=border)
-    top.add("─" * max(0, w - 1 - top.w), fg=border).add("╮", fg=border)
-    out.append(top)
+
+    def row(line, bold_title=False):
+        r = Line().add(edge[0], fg=edge[1], bg=bg).add(" ", bg=bg)
+        fill = bg
+        for text, fg, part_bg, bold in line.parts:
+            r.add(text, fg, part_bg or bg, bold)
+        if line.parts and getattr(line, "fill", False):
+            fill = line.parts[-1][2] or bg
+        r.pad_to(inner + 2, bg=fill)
+        r.add("  ", bg=bg)
+        return r
+
+    out.append(row(title_line))
     for line in body:
-        row = Line().add("│ ", fg=border)
-        for text, fg, bg, bold in line.parts:
-            row.add(text, fg, bg, bold)
-        row.pad_to(inner + 2, bg=line.parts[-1][2] if line.parts and getattr(line, "fill", False) else None)
-        row.add(" │", fg=border)
-        out.append(row)
-    out.append(Line().add("╰" + "─" * (w - 2) + "╯", fg=border))
+        out.append(row(line))
+    # Bottom padding row (keeps the same height as the old ruled card)
+    out.append(row(Line()))
     return out
 
 
@@ -450,11 +431,15 @@ class Screen:
                 for j, (lines, w) in enumerate(row_cards):
                     if j:
                         line.add(" " * GAP)
-                    piece = lines[i] if i < len(lines) else Line().add(" " * w)
+                    # Shorter cards in the row are extended with their panel color so the row lines up
+                    piece = lines[i] if i < len(lines) else Line().add(" " * w, bg=PAL["card"])
                     for part in piece.parts:
                         line.add(*part)
                     line.pad_to(MARGIN + sum(c[1] for c in row_cards[: j + 1]) + GAP * j)
                 self.lines.append(line)
+            # A gap between rows of cards (filled panels would otherwise touch)
+            if start + cols < len(cards):
+                self.lines.append(Line())
             if hit_items:
                 col = MARGIN
                 for j, (lines, w) in enumerate(row_cards):
@@ -547,7 +532,7 @@ def layout(workspace, envs, items, cursor, flat):
             title = Line().add("● ", fg=STATE_COLOR.get(st, PAL["surface"]))
             name = "一覧タブ" if env["is_dashboard"] else env["name"]
             env_selected = selected and current["kind"] == "env"
-            title.add(fit(name, w - 12) if width(name) > w - 12 else name, fg=PAL["accent"] if env_selected else PAL["fg"], bold=True)
+            title.add(fit(name, w - 12) if width(name) > w - 12 else name, fg=PAL["accent_text"] if env_selected else PAL["fg"], bold=True)
             if env["branch"]:
                 title.add("  \ue725 " + fit(env["branch"], max(1, w - 16 - title.w)) if width(env["branch"]) > w - 16 - title.w else "  \ue725 " + env["branch"], fg=PAL["ok"])
             body = []
@@ -644,7 +629,7 @@ def agent_card(num, state, w, h, selected):
     inner = w - 4
     st = state.get("state")
     color = STATE_COLOR.get(st, PAL["muted"])
-    title = Line().add(CIRCLED[num - 1] if num <= len(CIRCLED) else str(num), fg=PAL["accent"] if selected else PAL["muted"], bold=True)
+    title = Line().add(CIRCLED[num - 1] if num <= len(CIRCLED) else str(num), fg=PAL["accent_text"] if selected else PAL["muted"], bold=True)
     title.add(" " + TOOL_LABEL.get(state.get("tool"), state.get("tool") or "?"), fg=PAL["fg"], bold=True)
     head = Line().add("● ", fg=color).add(STATE_LABEL.get(st, "?"), fg=color, bold=True)
     when = age(state.get("updated_at"))
@@ -676,14 +661,16 @@ def sidebar_layout(agents, cursor, shown):
     foot = Line().add(" ↵/クリック", fg=PAL["fg"], bold=True).add(" 表示  ", fg=PAL["muted"])
     foot.add("LEADER z", fg=PAL["fg"], bold=True).add(" 戻す", fg=PAL["muted"])
     avail = rows - 2
-    # Split the height evenly between the cards (at least 5 rows each: border, state, 1 line, border)
+    # Split the height evenly between the cards, one blank row between them
+    # (at least 5 rows each: title, state, 1 line of the task, padding, gap)
     h = max(5, avail // max(1, len(agents)))
     for i, (pane, state) in enumerate(agents):
         top = len(scr.lines)
         selected = pane["pane_id"] == shown or (shown is None and i == cursor)
-        for line in agent_card(i + 1, state, w, h, selected):
+        for line in agent_card(i + 1, state, w, h - 1, selected):
             scr.put(line)
-        for row in range(top, top + h):
+        scr.blank()
+        for row in range(top, top + h - 1):
             scr.hits.append((row, 0, w, i))
     while len(scr.lines) < rows - 1:
         scr.blank()

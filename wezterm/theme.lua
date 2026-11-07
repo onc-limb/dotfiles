@@ -1,21 +1,53 @@
--- ライト / ダークの切り替え (LEADER+b) と、ウィンドウの見た目
+-- 配色の選択 (LEADER+Shift+b、パターン × ライト / ダークの 6 通り)、ライト / ダークの切り替え (LEADER+b)、ウィンドウの見た目
 --
 -- 背景は透過させずに palette.bg で塗りつぶし、タブバーは一段沈んだ palette.chrome にして、
 -- ターミナルではなく普通のデスクトップアプリのように見せる。
--- モードは ~/.local/state/wezterm/theme に保存し、次の起動でも使う。
--- 切り替えると WezTerm は設定を読み直し、nvim (plugin.lua) とエージェント一覧・状態カード (bin/agent-dashboard)
--- はこのファイルの変化を見て配色を変える
+-- 選んだパターンとモードは ~/.local/state/wezterm/scheme / theme に保存し、次の起動でも使う。
+-- 切り替えると WezTerm は設定を読み直し、nvim (plugin.lua) はこれらのファイルの変化を見て配色を変える。
+-- エージェント一覧・状態カード (bin/agent-dashboard) 用に、今の配色を palette.json に書き出す
 local wezterm = require("wezterm")
 local palette = require("palette")
 
 local M = {}
 
+local STATE_DIR = wezterm.home_dir .. "/.local/state/wezterm"
+M.json_path = STATE_DIR .. "/palette.json"
+
+-- 文字列の色だけを JSON に書く (内容が変わったときだけ)
+local function write_json()
+	local flat = { scheme = palette.scheme, mode = palette.mode }
+	for k, v in pairs(palette) do
+		if type(v) == "string" and v:match("^#%x%x%x%x%x%x$") then
+			flat[k] = v
+		end
+	end
+	local text = wezterm.json_encode(flat)
+	local f = io.open(M.json_path, "r")
+	if f then
+		local old = f:read("*a")
+		f:close()
+		if old == text then
+			return
+		end
+	end
+	os.execute("mkdir -p '" .. STATE_DIR .. "'")
+	f = io.open(M.json_path, "w")
+	if f then
+		f:write(text)
+		f:close()
+	end
+end
+
 function M.setup(config)
 	config.window_background_opacity = 1.0
 	config.macos_window_background_blur = 0
-	-- 文字が窓の縁に張り付かないよう、アプリらしく余白を取る
-	config.window_padding = { left = 12, right = 12, top = 10, bottom = 6 }
-	-- 以前の背景プリセット (LEADER+b) がウィンドウに残した背景の上書きを消す (残っていると塗りつぶしの色より優先される)
+	-- 文字が窓の縁に張り付かないよう、アプリらしく余白を取り、行間も少し広げる
+	config.window_padding = { left = 14, right = 14, top = 12, bottom = 8 }
+	config.line_height = 1.1
+	-- ブロックではなく縦線のカーソル (テキストエディタのように)
+	config.default_cursor_style = "SteadyBar"
+	write_json()
+	-- 以前の背景プリセットがウィンドウに残した背景の上書きを消す (残っていると塗りつぶしの色より優先される)
 	wezterm.on("window-config-reloaded", function(window)
 		local overrides = window:get_config_overrides()
 		if overrides and overrides.background then
@@ -25,23 +57,65 @@ function M.setup(config)
 	end)
 end
 
+local function write(path, value)
+	os.execute("mkdir -p '" .. STATE_DIR .. "'")
+	local f = io.open(path, "w")
+	if not f then
+		return false
+	end
+	f:write(value .. "\n")
+	f:close()
+	return true
+end
+
+-- 書いてから設定を読み直す (開いているすべてのウィンドウに反映される)
+local function save(path, value)
+	if write(path, value) then
+		wezterm.reload_configuration()
+	end
+end
+
 -- LEADER+b: ライトとダークを切り替える。保存して設定を読み直すと、開いているすべてのウィンドウに反映される
 function M.toggle()
 	return wezterm.action_callback(function()
-		local next_mode = palette.mode == "dark" and "light" or "dark"
-		os.execute("mkdir -p '" .. palette.mode_file:match("^(.*)/[^/]+$") .. "'")
-		local f = io.open(palette.mode_file, "w")
-		if not f then
-			return
+		save(palette.mode_file, palette.mode == "dark" and "light" or "dark")
+	end)
+end
+
+-- LEADER+Shift+b: 配色パターンとライト / ダークの組み合わせ (3 × 2 = 6 通り) から選ぶ
+function M.pick()
+	return wezterm.action_callback(function(window, pane)
+		local choices = {}
+		for _, id in ipairs(palette.order) do
+			for _, mode in ipairs({ "light", "dark" }) do
+				local current = id == palette.scheme and mode == palette.mode
+				table.insert(choices, {
+					id = id .. ":" .. mode,
+					label = string.format(
+						"%s%s  %s",
+						current and "● " or "  ",
+						palette.schemes[id].label,
+						mode == "dark" and "ダーク" or "ライト"
+					),
+				})
+			end
 		end
-		f:write(next_mode .. "\n")
-		f:close()
-		-- 以前の背景プリセットがウィンドウごとの上書き (set_config_overrides) を残していると、
-		-- 読み直した設定より優先されてしまうので消す
-		for _, w in ipairs(wezterm.gui.gui_windows()) do
-			w:set_config_overrides({})
-		end
-		wezterm.reload_configuration()
+		window:perform_action(
+			wezterm.action.InputSelector({
+				title = "配色",
+				fuzzy = true,
+				choices = choices,
+				action = wezterm.action_callback(function(_, _, choice)
+					if not choice then
+						return
+					end
+					local id, mode = choice:match("^(.-):(.*)$")
+					write(palette.scheme_file, id)
+					save(palette.mode_file, mode)
+				end),
+			}),
+			pane
+		)
 	end)
 end
 

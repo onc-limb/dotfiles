@@ -63,6 +63,8 @@ return {
 		},
 		-- ライト / ダークの切り替え
 		{ key = "b", mods = "LEADER", action = require("theme").toggle() },
+		-- 配色パターンを選ぶ
+		{ key = "B", mods = "LEADER|SHIFT", action = require("theme").pick() },
 		-- コマンドパレット表示
 		{ key = "p", mods = "SUPER", action = act.ActivateCommandPalette },
 		-- Tab移動

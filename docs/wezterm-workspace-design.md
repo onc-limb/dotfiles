@@ -116,7 +116,7 @@ WezTerm は読むだけ、エージェント側は書くだけ。
 |---|---|
 | `Cmd+t` / `Cmd+Shift+t` | 今のディレクトリで作業環境のタブ (nvim + ツリー) / 素のシェルのタブ |
 | `Cmd+0` | エージェント一覧タブへ |
-| LEADER `b` | ライト / ダークの切り替え |
+| LEADER `b` / LEADER `Shift+b` | ライト / ダークの切り替え / 配色（パターン × ライト・ダークの 6 通り）を選ぶ |
 | LEADER `w` / LEADER `W` | ワークスペースの選択（入るとエージェント一覧タブ） / 作成 |
 | LEADER `n` | worktree のタブを作る / 開く |
 | LEADER `c` / LEADER `x` | Claude / Codex を起動して全画面で表示（右に状態カードが出る） |
@@ -141,16 +141,27 @@ nvim 側:
 
 ## 見た目
 
-- フォント: SF Mono 14pt / 太さ 500（Orca と同じ）。Terminal.app 同梱のフォントを `font_dirs` で読む。
-  アイコンは Symbols Nerd Font Mono で補う
-- 配色: `wezterm/palette.lua` にライト (`M.light`) とダーク (`M.dark`) を並べ、WezTerm・nvim・エージェント一覧タブ・
-  状態カードがすべて同じファイルから読む。ターミナルらしさを抑えた、少しレトロなデスクトップアプリ風の色合い:
-  ライトは古い紙のクリーム色、ダークは焦げ茶がかった炭色を地に、ティール・からし色・れんが色・オリーブを差す。
-  nvim は vscode.nvim の色を `palette.nvim` で上書きする（構文の色も同じ差し色）
-- ライト / ダーク: LEADER `b` で切り替え、`~/.local/state/wezterm/theme` に保存する。WezTerm は設定を読み直し、
-  nvim はこのファイルの変化を見て (`vim.uv.new_fs_event`) colorscheme を当て直し、一覧タブ・状態カードは再描画のたびに読む
-- 背景: 透過させずに `bg` で塗りつぶす。タブバーと nvim のツリーは一段沈んだ `chrome` にし、
-  アクティブなタブは本文と同じ色の札にする（アプリのタブ列のように）。ウィンドウの内側に余白を取る
+- フォント: 配色パターンごとに決める（Instrument は SF Mono、Aviation は JetBrains Mono、Thermal は Fira Code）。14pt で、
+  ライトは Medium、ダークは一段細い Regular（暗い背景の明るい文字は太って滲んで見えやすい）。ヒンティングは弱め
+  (`freetype_load_target = "Light"`、`freetype_load_flags = "NO_HINTING"`)。nvim とエージェントは WezTerm の中で動くので同じフォントになる。
+  SF Mono は Terminal.app 同梱のフォントを `font_dirs` で読む。アイコンは Symbols Nerd Font Mono で補う
+- 配色: `wezterm/palette.lua` に配色パターン (Instrument 計測器 / Aviation 航空計器 / Thermal サーモグラフィ) を
+  ライト・ダークの組で並べる。
+  各パターンは十数色だけ持ち、ANSI 色や nvim (vscode.nvim の `color_overrides`) の色はそこから計算する。
+  既定は Aviation のダーク
+- 切り替え: LEADER `Shift+b` でパターン × ライト / ダークの 6 通りから選び、LEADER `b` でライト / ダークだけを切り替える。
+  `~/.local/state/wezterm/scheme` / `theme` に保存し、WezTerm は設定を読み直す。nvim はこれらのファイルの変化を見て
+  (`vim.uv.new_fs_event`) colorscheme を当て直す。一覧タブ・状態カードは WezTerm が書き出す
+  `~/.local/state/wezterm/palette.json` を再描画のたびに読む
+- Claude Code: WezTerm から起動するとき (`bin/agent-auto`) は `--settings '{"theme":"dark-ansi"}'`
+  (ライトなら `light-ansi`) を付け、ターミナルの 16 色 (= palette.lua) で描かせる。settings.json は他の端末用に `auto` のまま。
+  起動時のモードで決まるので、切り替える前から動いているセッションは元の色のまま
+- カーソルと日本語の変換中の文字の下地は、差し色を背景に寄せて薄めた `cursor`
+- ターミナルらしさを抑える工夫:
+  - 背景は透過させずに `bg` で塗りつぶす。タブバーと nvim のツリーは一段沈んだ `chrome`、カードは一段浮いた `card`
+  - タブバーは fancy 版にして、UI 用の可変幅フォント (Helvetica Neue / ヒラギノ) で描く。ワークスペース名は薄い文字
+  - カードは罫線文字で囲まず、塗った面にする (選択中は左端にアクセント色の縦線)
+  - ウィンドウの余白を広めに取り、行間を少し広げ、カーソルは縦線にする
 
 ## 実装メモ
 
@@ -175,8 +186,8 @@ nvim 側:
 | `bin/agent-state` | hook / ステータスラインから状態ファイルと利用制限を書く |
 | `bin/agent-dashboard` | エージェント一覧タブの中身 / `--sidebar` で作業環境の右の状態カード |
 | `bin/agent-view` | エージェントをタブに出して全画面にする / 見えないワークスペースに戻す |
-| `wezterm/palette.lua` | 配色（nvim・エージェント一覧タブからも読む） |
-| `wezterm/theme.lua` | ライト / ダークの切り替えと背景 |
+| `wezterm/palette.lua` | 配色パターン（nvim も読む） |
+| `wezterm/theme.lua` | 配色パターン・ライト / ダークの切り替え、ウィンドウの見た目、palette.json の書き出し |
 | `wezterm/statusbar.lua` | 下のタブバーの右側 |
 | `wezterm/workspace.lua` | worktree タブ、エージェント、エージェント一覧タブ、キー操作 |
 | `wezterm/session.lua` | 復旧の保存と復元 |

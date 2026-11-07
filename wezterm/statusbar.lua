@@ -165,7 +165,7 @@ function M.right_status(window, pane)
 	local key_table = window:active_key_table()
 	local mode = key_table and ("TABLE: " .. key_table) or (window:leader_is_active() and "LEADER" or nil)
 	if mode then
-		append(cells, { { Foreground = { Color = palette.accent } }, { Text = mode .. "  " } })
+		append(cells, { { Foreground = { Color = palette.accent_text } }, { Text = mode .. "  " } })
 	end
 
 	-- 今のタブのエージェント: ① claude ⏳  ② codex 💬
@@ -176,7 +176,7 @@ function M.right_status(window, pane)
 			active_agent = item.agent
 		end
 		append(cells, {
-			{ Foreground = { Color = is_active and palette.accent or palette.fg } },
+			{ Foreground = { Color = is_active and palette.accent_text or palette.fg } },
 			{ Attribute = { Intensity = is_active and "Bold" or "Normal" } },
 			{ Text = (CIRCLED[i] or tostring(i)) .. " " .. (item.agent.tool or "?") .. " " },
 			"ResetAttributes",
@@ -238,20 +238,11 @@ function M.git_info(path)
 	return info
 end
 
--- 左側のステータス: ワークスペース名の丸い札 (ディレクトリとブランチはタブ名に出す)
+-- 左側のステータス: ワークスペース名を薄い文字で (ディレクトリとブランチはタブ名に出す)
 function M.left_status(window)
-	local LEFT = wezterm.nerdfonts.ple_left_half_circle_thick
-	local RIGHT = wezterm.nerdfonts.ple_right_half_circle_thick
 	return wezterm.format({
-		{ Foreground = { Color = palette.accent } },
-		{ Text = " " .. LEFT },
-		{ Background = { Color = palette.accent } },
-		{ Foreground = { Color = palette.accent_fg } },
-		{ Attribute = { Intensity = "Bold" } },
-		{ Text = "◆ " .. window:active_workspace() },
-		"ResetAttributes",
-		{ Foreground = { Color = palette.accent } },
-		{ Text = RIGHT .. "  " },
+		{ Foreground = { Color = palette.muted } },
+		{ Text = "   " .. window:active_workspace() .. "   " },
 	})
 end
 

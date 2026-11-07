@@ -23,13 +23,14 @@ return {
 				vim.cmd("colorscheme vscode")
 			end
 			apply()
-			-- WezTerm の LEADER+b でモードのファイル (~/.local/state/wezterm/theme) が変わったら、開いている nvim も切り替える
+			-- WezTerm の LEADER+b / LEADER+Shift+b でモード・配色パターンのファイル (~/.local/state/wezterm/theme / scheme)
+			-- が変わったら、開いている nvim も切り替える
 			local dir = vim.fn.expand("~/.local/state/wezterm")
 			vim.fn.mkdir(dir, "p")
 			local watcher = vim.uv.new_fs_event()
 			if watcher then
 				watcher:start(dir, {}, function(_, filename)
-					if filename == "theme" then
+					if filename == "theme" or filename == "scheme" then
 						vim.schedule(function()
 							local mode = vim.o.background
 							apply()
