@@ -81,14 +81,24 @@ WezTerm は読むだけ、エージェント側は書くだけ。
 | キー | 操作 |
 |---|---|
 | `Cmd+0` | エージェント一覧タブへ |
-| LEADER `w` | ワークスペースの選択 |
+| LEADER `w` / LEADER `W` | ワークスペースの選択 / 作成 |
 | LEADER `n` | worktree のタブを作る / 開く |
 | LEADER `c` / LEADER `x` | Claude / Codex を起動 |
 | `Cmd+e` | nvim のペインへ |
 | `Cmd+a` | エージェントのペインへ（押すたびに次へ） |
 | LEADER `1..9` | 番号でエージェントを選ぶ |
+| LEADER `X` | ペインを閉じる（LEADER `x` は Codex に付け替えた） |
+| `Cmd+w` | タブを閉じる（エージェント一覧タブは閉じない） |
 
-`Cmd+0`（フォントサイズのリセット）、LEADER `x`（ペインを閉じる）は付け替える。
+nvim 側:
+
+| キー | 操作 |
+|---|---|
+| `Space e` | ツリーにフォーカス / ツリー上で閉じる |
+| `Space E` | ツリーを変更ファイル表示に切り替え（ツリー上では `<` `>` でも切り替え、`D` で差分） |
+| `Ctrl+/` | nvim の中のターミナルを開閉 |
+| `Space m` | Markdown のソース / レンダリング表示を切り替え |
+| `Space gd` | 変更の一覧と差分（diffview） |
 
 ## 見た目
 
@@ -96,6 +106,29 @@ WezTerm は読むだけ、エージェント側は書くだけ。
   アイコンは Symbols Nerd Font Mono で補う
 - 配色: `wezterm/palette.lua` に集約し、WezTerm と nvim の両方から読む。ライト系で文字は濃いめ
 - 背景: 透過 + ぼかし。nvim は背景を描画しない
+
+## 実装メモ
+
+- WezTerm 20240203 は、コマンド付きで `spawn_tab` / `split` すると `cwd` を無視して今のペインの
+  ディレクトリで起動する。そのためコマンドの先頭で `cd` している（`workspace.lua` の `M.zsh`）
+- Claude のセッションは起動したディレクトリに紐づくので、状態ファイルの `cwd` は起動時の値
+  （SessionStart の hook とステータスラインの `project_dir`）だけを記録する
+- 復旧は `WEZTERM_SESSION_FILE=<テスト用 json> wezterm start --always-new-process` で
+  別プロセスの WezTerm を立てて試せる（動いている WezTerm の状態ファイルは消さない）
+- Codex の hook は `~/.codex/hooks.json`（dotfiles 外）に登録している。仕事用の設定へは
+  `bin/orca-hooks-sync` で Orca の hook と一緒にコピーする
+
+## ファイル
+
+| ファイル | 役割 |
+|---|---|
+| `bin/agent-state` | hook / ステータスラインから状態ファイルと利用制限を書く |
+| `bin/agent-dashboard` | エージェント一覧タブの中身 |
+| `wezterm/palette.lua` | 配色（nvim からも読む） |
+| `wezterm/statusbar.lua` | 下のタブバーの右側 |
+| `wezterm/workspace.lua` | worktree タブ、エージェント、エージェント一覧タブ、キー操作 |
+| `wezterm/session.lua` | 復旧の保存と復元 |
+| `nvim/lua/worktree_session.lua` | worktree ごとに開いていたファイルの保存と復元 |
 
 ## 実装の順番
 
