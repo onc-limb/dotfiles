@@ -125,6 +125,7 @@ local function restore(data)
 			args = workspace.dashboard_args(),
 		})
 		dashboard_tab:set_title(workspace.DASHBOARD_TITLE)
+		local env_tabs = 0
 		for _, entry in ipairs(ws.tabs) do
 			if entry.kind == "dashboard" then
 				restore_agents(dashboard_tab, entry.agents, wezterm.home_dir)
@@ -139,7 +140,12 @@ local function restore(data)
 					tab:set_title(entry.title)
 				end
 				restore_agents(tab, entry.agents, entry.cwd)
+				env_tabs = env_tabs + 1
 			end
+		end
+		-- エージェント一覧タブしか残っていなければ、作業環境のタブを 1 つ開いておく
+		if env_tabs == 0 then
+			workspace.spawn_worktree_tab(window, wezterm.home_dir)
 		end
 		-- ワークスペースごとに先頭のエージェント一覧タブを表示しておく
 		dashboard_tab:activate()
@@ -157,7 +163,14 @@ function M.setup()
 			clear_agent_states()
 		end
 		if not data then
-			wezterm.mux.spawn_window(cmd or {})
+			if cmd and cmd.args then
+				wezterm.mux.spawn_window(cmd)
+			else
+				-- 初回起動: エージェント一覧タブと、作業環境のタブを 1 つ
+				local tab, _, window = wezterm.mux.spawn_window({ cwd = wezterm.home_dir, args = workspace.dashboard_args() })
+				tab:set_title(workspace.DASHBOARD_TITLE)
+				workspace.spawn_worktree_tab(window, wezterm.home_dir)
+			end
 			return
 		end
 		wezterm.GLOBAL.session_restoring = true
