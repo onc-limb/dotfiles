@@ -61,6 +61,8 @@ return {
 				end),
 			}),
 		},
+		-- 背景のプリセットを選ぶ
+		{ key = "b", mods = "LEADER", action = require("background").pick() },
 		-- コマンドパレット表示
 		{ key = "p", mods = "SUPER", action = act.ActivateCommandPalette },
 		-- Tab移動

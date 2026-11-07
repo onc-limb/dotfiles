@@ -18,49 +18,9 @@ config.font = wezterm.font_with_fallback({
 	"Noto Color Emoji",
 })
 config.use_ime = true
--- 背景: パステルのグラデーションを重ね、下のデスクトップをぼかして透かす (色は palette.lua)。
+-- 背景: 淡いグラデーションを重ね、下のデスクトップをぼかして透かす (プリセットは background.lua、LEADER+b で切り替え)。
 -- nvim は背景を描画しないので、シェル・nvim・エージェントのどのペインも同じ背景になる
-local bg = palette.background
-config.macos_window_background_blur = palette.blur
-config.background = {
-	{
-		source = {
-			Gradient = {
-				orientation = { Linear = { angle = -35.0 } },
-				colors = bg.base,
-				interpolation = "CatmullRom",
-				blend = "Oklab",
-				-- 細かいノイズでグラデーションの縞 (バンディング) を目立たなくする
-				noise = 48,
-			},
-		},
-		width = "100%",
-		height = "100%",
-		opacity = bg.base_opacity,
-	},
-	{
-		source = {
-			Gradient = {
-				orientation = { Radial = { cx = 0.85, cy = 0.1, radius = 0.9 } },
-				colors = { bg.glow_top, "rgba(255,255,255,0)" },
-			},
-		},
-		width = "100%",
-		height = "100%",
-		opacity = bg.glow_opacity,
-	},
-	{
-		source = {
-			Gradient = {
-				orientation = { Radial = { cx = 0.1, cy = 0.95, radius = 0.8 } },
-				colors = { bg.glow_bottom, "rgba(255,255,255,0)" },
-			},
-		},
-		width = "100%",
-		height = "100%",
-		opacity = bg.glow_opacity,
-	},
-}
+require("background").setup(config)
 config.audible_bell = "SystemBeep"
 config.scrollback_lines = 10000
 
