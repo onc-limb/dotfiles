@@ -274,6 +274,15 @@ function M.pick_worktree()
 	end)
 end
 
+-- Cmd+t: 今のペインのディレクトリで作業環境のタブ (nvim + ツリー) を開く。
+-- エージェント一覧タブからはホームで開く
+function M.new_env_tab()
+	return wezterm.action_callback(function(window, pane)
+		local cwd = role_of(pane) == "dashboard" and wezterm.home_dir or M.pane_cwd(pane)
+		M.spawn_worktree_tab(window:mux_window(), cwd)
+	end)
+end
+
 function M.launch_agent(tool)
 	return wezterm.action_callback(function(window)
 		local pane = M.spawn_agent(window:active_tab(), tool)

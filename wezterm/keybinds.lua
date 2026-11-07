@@ -68,8 +68,9 @@ return {
 		{ key = "Tab", mods = "SHIFT|CTRL", action = act.ActivateTabRelative(-1) },
 		-- Tab入れ替え
 		{ key = "{", mods = "LEADER", action = act({ MoveTabRelative = -1 }) },
-		-- Tab新規作成
-		{ key = "t", mods = "SUPER", action = act({ SpawnTab = "CurrentPaneDomain" }) },
+		-- Tab新規作成: Cmd+t は今のディレクトリで作業環境のタブ (nvim + ツリー)、Cmd+Shift+t は素のシェルのタブ
+		{ key = "t", mods = "SUPER", action = workspace.new_env_tab() },
+		{ key = "T", mods = "SUPER|SHIFT", action = act({ SpawnTab = "CurrentPaneDomain" }) },
 		-- ウィンドウ新規作成 (aerospace で別画面/ワークスペースに wezterm を並べる用)
 		-- disable_default_key_bindings = true でデフォルトの Cmd+N が消えているため明示定義
 		{ key = "n", mods = "SUPER", action = act.SpawnWindow },
