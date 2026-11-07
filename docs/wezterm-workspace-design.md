@@ -17,11 +17,23 @@ Orca から WezTerm に一本化するための設計メモ。herdr は使わず
 │ neo-tree │ nvim (メイン)        │ エージェント   │
 │ (表示切替)│ ターミナルも nvim 内 │ (縦に並べる)   │
 └──────────┴─────────────────────┴──────────────┘
- 1 feat-a  2 fix-b  ◆ agents │ ①claude ⏳ ②codex 💬 │ Opus 42% │ C 5h32% 週18% │ X 週23%
+ ◆ default │ 1 ◆ agents  2 repo  main  3 repo  feat-a │ ①claude ⏳ ②codex 💬 │ Opus 42% │ C 5h 32% 14:30 週 18% 水 09:00 │ X 週 23% 木 07:58
 ```
 
-- タブバーは下に 1 本だけ。左に worktree のタブ、右にエージェントの状態と利用制限を出す
+入れ子は ワークスペース → 作業環境 (タブ = ディレクトリ / worktree) → エージェント (ペイン)。
+
+- LEADER `w` でワークスペースを選ぶと、作業環境の数とエージェントの状態が並び、入るとエージェント一覧タブが開く
+- エージェント一覧タブは作業環境ごとのカードにエージェントを並べる（`a` でエージェントだけの待ち順一覧に切り替え）。
+  j/k・h/l で選んで Enter かクリックで、その作業環境 (nvim) / エージェントのペインへ移動する。
+  利用制限はメーターとリセット時刻・残り時間で出す。配色は `palette.lua` を読み、背景は塗らずに WezTerm の背景を透かす
+- 起動時は、エージェント一覧タブのほかに作業環境のタブを最低 1 つ開く（復元するタブがなければホームで開く）
+
+- タブバーは下に 1 本だけ (WezTerm のタブバーは 1 行固定で、2 段にはできない)。
+  左端にワークスペース名、続けて worktree のタブ (リポジトリ名とブランチ)、右にエージェントの状態と利用制限を出す。
+  ディレクトリはタブ名でわかるので、WezTerm の中では Claude のステータスラインからディレクトリの行を省く
 - タブ = worktree。ワークスペース = private / work / 案件
+- 作業環境のタブ名は「リポジトリ名  ブランチ」(worktree でも元のリポジトリ名)。git の外ならディレクトリ名。
+  エージェント一覧タブのカードも同じ名前にする
 - ワークスペースごとに、閉じられないエージェント一覧タブ（◆）を 1 つ置く
 - エージェントは右側に縦に並べるだけにする（裏に退避して入れ替える仕組みは作らない）
 
@@ -56,6 +68,7 @@ WezTerm は読むだけ、エージェント側は書くだけ。
 
 ### 利用制限
 
+- どちらもリセット時刻 (`resets_at`) を一緒に保存し、タブバーには `14:30`（5 時間枠）/ `水 09:00`（週次）で出す
 - Claude: ステータスラインが受け取る `rate_limits` を `~/.local/state/agents/quota-claude-<profile>.json` に書き出す
 - Codex: セッションログ（`$CODEX_HOME/sessions/**/rollout-*.jsonl`）の最新の `token_count` から読む。
   今のアカウントでは週次（`window_minutes: 10080`）しか記録されていないので、ある枠だけ表示する
@@ -80,8 +93,10 @@ WezTerm は読むだけ、エージェント側は書くだけ。
 
 | キー | 操作 |
 |---|---|
+| `Cmd+t` / `Cmd+Shift+t` | 今のディレクトリで作業環境のタブ (nvim + ツリー) / 素のシェルのタブ |
 | `Cmd+0` | エージェント一覧タブへ |
-| LEADER `w` / LEADER `W` | ワークスペースの選択 / 作成 |
+| LEADER `b` | 背景のプリセットを選ぶ |
+| LEADER `w` / LEADER `W` | ワークスペースの選択（入るとエージェント一覧タブ） / 作成 |
 | LEADER `n` | worktree のタブを作る / 開く |
 | LEADER `c` / LEADER `x` | Claude / Codex を起動 |
 | `Cmd+e` | nvim のペインへ |
@@ -105,7 +120,9 @@ nvim 側:
 - フォント: SF Mono 14pt / 太さ 500（Orca と同じ）。Terminal.app 同梱のフォントを `font_dirs` で読む。
   アイコンは Symbols Nerd Font Mono で補う
 - 配色: `wezterm/palette.lua` に集約し、WezTerm と nvim の両方から読む。ライト系で文字は濃いめ
-- 背景: 透過 + ぼかし。nvim は背景を描画しない
+- 背景: 透過 + ぼかしの上に淡いグラデーション。プリセット (Pastel / Aurora / Sunset / Sakura / Glass / 画像) を
+  LEADER `b` で切り替え、`~/.local/state/wezterm/background` に保存する。画像は `~/.config/wezterm/wallpaper.jpg|png`。
+  nvim は背景を描画しない
 
 ## 実装メモ
 
@@ -124,7 +141,8 @@ nvim 側:
 |---|---|
 | `bin/agent-state` | hook / ステータスラインから状態ファイルと利用制限を書く |
 | `bin/agent-dashboard` | エージェント一覧タブの中身 |
-| `wezterm/palette.lua` | 配色（nvim からも読む） |
+| `wezterm/palette.lua` | 配色（nvim・エージェント一覧タブからも読む） |
+| `wezterm/background.lua` | 背景のプリセットと切り替え |
 | `wezterm/statusbar.lua` | 下のタブバーの右側 |
 | `wezterm/workspace.lua` | worktree タブ、エージェント、エージェント一覧タブ、キー操作 |
 | `wezterm/session.lua` | 復旧の保存と復元 |
