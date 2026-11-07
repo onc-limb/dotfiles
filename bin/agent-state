@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Record Claude Code / Codex state per WezTerm pane for the WezTerm tab bar.
+
+Usage (stdin is the JSON the agent passes to the hook / status line):
+  agent-state hook claude|codex   from a Claude Code or Codex hook
+  agent-state statusline          from the Claude Code status line script
+
+Writes ~/.local/state/agents/<WEZTERM_PANE>.json (state, session id, model, context) and
+~/.local/state/agents/quota-<tool>-<profile>.json (5h / weekly rate limits). WezTerm only reads
+these files. Outside WezTerm (no WEZTERM_PANE) only the quota files are updated.
+Never prints anything and always exits 0: a hook's stdout can be fed back to the agent.
+"""
+import json
+import os
+import sys
+import time
+
+STATE_DIR = os.path.expanduser("~/.local/state/agents")
+
+# hook event -> state shown in the tab bar
+EVENT_STATE = {
+    "SessionStart": "idle",
+    "UserPromptSubmit": "working",
+    "PreToolUse": "working",
+    "PostToolUse": "working",
+    "PermissionRequest": "waiting",
+    "Notification": "waiting",
+    "Stop": "done",
+    "StopFailure": "done",
+    "Interrupt": "done",
+}
+
+
+def profile():
+    # Same split as bin/agent-auto: the work configs live in ~/.claude-work / ~/.codex-work
+    for var in ("CLAUDE_CONFIG_DIR", "CODEX_HOME"):
+        if os.environ.get(var, "").rstrip("/").endswith("-work"):
+            return "work"
+    return "private"
+
+
+def write_json(path, data):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def pane_path():
+    pane = os.environ.get("WEZTERM_PANE")
+    return os.path.join(STATE_DIR, f"{pane}.json") if pane else None
+
+
+def update_pane(fields):
+    path = pane_path()
+    if not path:
+        return
+    data = read_json(path)
+    data.update({k: v for k, v in fields.items() if v is not None})
+    data["updated_at"] = int(time.time())
+    write_json(path, data)
+
+
+def write_quota(tool, windows):
+    """windows: {"5h": {"pct": float, "resets_at": epoch}, "week": {...}}"""
+    windows = {k: v for k, v in windows.items() if v and v.get("pct") is not None}
+    if not windows:
+        return
+    path = os.path.join(STATE_DIR, f"quota-{tool}-{profile()}.json")
+    write_json(path, {"tool": tool, "profile": profile(), "windows": windows, "updated_at": int(time.time())})
+
+
+def tail_lines(path, size=512 * 1024):
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - size))
+            return f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+
+
+def codex_details(transcript):
+    """Model, context % and rate limits from the latest entries of a Codex rollout file."""
+    model, ctx_pct, limits = None, None, None
+    for line in reversed(tail_lines(transcript)):
+        if model and ctx_pct is not None and limits:
+            break
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        payload = entry.get("payload") or {}
+        if not model:
+            # /model で切り替えると thread_settings_applied が新しく記録される
+            if payload.get("type") == "thread_settings_applied":
+                model = (payload.get("thread_settings") or {}).get("model")
+            elif entry.get("type") == "world_state":
+                model = (payload.get("state") or {}).get("model")
+            elif entry.get("type") == "turn_context":
+                model = payload.get("model")
+        if payload.get("type") == "token_count":
+            info = payload.get("info") or {}
+            last = info.get("last_token_usage") or {}
+            window = info.get("model_context_window")
+            if ctx_pct is None and window and last.get("total_tokens") is not None:
+                ctx_pct = round(last["total_tokens"] * 100 / window)
+            if not limits and payload.get("rate_limits"):
+                limits = payload["rate_limits"]
+    if not model:
+        # 長いセッションでは末尾にモデルの記録がないので、先頭のセッション設定から読む
+        try:
+            with open(transcript, encoding="utf-8", errors="replace") as f:
+                for _, line in zip(range(50), f):
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:
+                        continue
+                    payload = entry.get("payload") or {}
+                    if payload.get("type") == "thread_settings_applied":
+                        model = (payload.get("thread_settings") or {}).get("model") or model
+        except OSError:
+            pass
+    windows = {}
+    for key in ("primary", "secondary"):
+        w = (limits or {}).get(key)
+        if not w:
+            continue
+        name = "5h" if w.get("window_minutes") == 300 else "week" if w.get("window_minutes") == 10080 else None
+        if name:
+            windows[name] = {"pct": w.get("used_percent"), "resets_at": w.get("resets_at")}
+    return model, ctx_pct, windows
+
+
+def handle_hook(tool, data):
+    event = data.get("hook_event_name") or ""
+    path = pane_path()
+    if event == "SessionEnd":
+        if path and read_json(path).get("session_id") in (None, data.get("session_id")):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        return
+    state = EVENT_STATE.get(event)
+    # Claude's "waiting for your input" reminder after a finished turn is not a new request
+    if event == "Notification" and data.get("notification_type") == "idle_prompt":
+        state = None
+    fields = {
+        "tool": tool,
+        "profile": profile(),
+        "session_id": data.get("session_id"),
+        "cwd": data.get("cwd"),
+        "state": state,
+    }
+    if tool == "codex":
+        model, ctx_pct, windows = codex_details(data.get("transcript_path") or "")
+        fields.update({"model": model or data.get("model"), "ctx_pct": ctx_pct})
+        write_quota("codex", windows)
+    update_pane(fields)
+
+
+def handle_statusline(data):
+    ctx = (data.get("context_window") or {}).get("used_percentage")
+    update_pane(
+        {
+            "tool": "claude",
+            "profile": profile(),
+            "session_id": data.get("session_id"),
+            "cwd": (data.get("workspace") or {}).get("current_dir") or data.get("cwd"),
+            "model": (data.get("model") or {}).get("display_name"),
+            "ctx_pct": round(ctx) if ctx is not None else None,
+        }
+    )
+    limits = data.get("rate_limits") or {}
+    write_quota(
+        "claude",
+        {
+            "5h": {
+                "pct": (limits.get("five_hour") or {}).get("used_percentage"),
+                "resets_at": (limits.get("five_hour") or {}).get("resets_at"),
+            },
+            "week": {
+                "pct": (limits.get("seven_day") or {}).get("used_percentage"),
+                "resets_at": (limits.get("seven_day") or {}).get("resets_at"),
+            },
+        },
+    )
+
+
+def main():
+    try:
+        data = json.load(sys.stdin)
+    except ValueError:
+        return
+    if sys.argv[1:2] == ["hook"] and len(sys.argv) > 2:
+        handle_hook(sys.argv[2], data)
+    elif sys.argv[1:2] == ["statusline"]:
+        handle_statusline(data)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:  # never break the agent because of the tab bar
+        pass

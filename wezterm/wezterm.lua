@@ -63,46 +63,8 @@ local SOLID_LEFT_ARROW = wezterm.nerdfonts.ple_left_half_circle_thick
 -- タブの右側の装飾
 local SOLID_RIGHT_ARROW = wezterm.nerdfonts.ple_right_half_circle_thick
 
--- 右上ステータス: ワークスペース名（アクティブタブと同じ青のタブ風） + キーテーブル / leader 状態 + 時間帯絵文字 + 時刻
-wezterm.on("update-right-status", function(window, pane)
-	local workspace = window:active_workspace()
-	local date = wezterm.strftime("%H:%M")
-	local hour = tonumber(wezterm.strftime("%H"))
-	local mood = "☕"
-	if hour >= 6 and hour < 11 then
-		mood = "🌅"
-	elseif hour >= 11 and hour < 17 then
-		mood = "☀️"
-	elseif hour >= 17 and hour < 21 then
-		mood = "🌇"
-	else
-		mood = "🌙"
-	end
-
-	-- アクティブなキーテーブル名 > LEADER の優先順で表示
-	local mode = ""
-	local key_table = window:active_key_table()
-	if key_table then
-		mode = " TABLE: " .. key_table .. " "
-	elseif window:leader_is_active() then
-		mode = " LEADER "
-	end
-	window:set_left_status("")
-	window:set_right_status(wezterm.format({
-		{ Foreground = { Color = palette.accent } },
-		{ Text = SOLID_LEFT_ARROW },
-		{ Background = { Color = palette.accent } },
-		{ Foreground = { Color = palette.accent_fg } },
-		{ Text = " " .. workspace .. " " },
-		"ResetAttributes",
-		{ Foreground = { Color = palette.accent } },
-		{ Text = SOLID_RIGHT_ARROW .. " " },
-		{ Foreground = { Color = palette.accent } },
-		{ Text = mode },
-		{ Foreground = { Color = palette.muted } },
-		{ Text = mood .. "  " .. date .. "  " },
-	}))
-end)
+-- 下のタブバー: 右側にエージェントの状態・モデルとコンテキスト・利用制限・ワークスペース名 (statusbar.lua)
+require("statusbar").setup(config)
 
 wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
 	local background = palette.surface

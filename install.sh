@@ -77,6 +77,7 @@ main() {
     create_link "$DOTFILES_DIR/claude/home/settings.json" "$HOME/.claude/settings.json"
     create_link "$DOTFILES_DIR/claude/home/keybindings.json" "$HOME/.claude/keybindings.json"
     create_link "$DOTFILES_DIR/claude/home/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+    create_link "$DOTFILES_DIR/claude/home/statusline.sh" "$HOME/.claude/statusline.sh"
 
     # Claude Code home-level skills
     if [ -d "$DOTFILES_DIR/claude/home/skills" ]; then

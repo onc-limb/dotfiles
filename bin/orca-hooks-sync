@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Copy Orca's agent status hooks from the default agent configs into the work configs.
+"""Copy the agent status hooks from the default agent configs into the work configs.
 
-Orca installs its hooks only into ~/.claude/settings.json and ~/.codex/hooks.json. Agents
-launched with CLAUDE_CONFIG_DIR=~/.claude-work or CODEX_HOME=~/.codex-work would otherwise
-report no status to Orca. Only entries that call ~/.orca/agent-hooks are copied; private hooks
-(worklog, herdr, ...) stay out of the work configs. Re-run after Orca updates its hooks.
+Orca installs its hooks only into ~/.claude/settings.json and ~/.codex/hooks.json, and the
+WezTerm tab bar hooks (bin/agent-state) are registered there too. Agents launched with
+CLAUDE_CONFIG_DIR=~/.claude-work or CODEX_HOME=~/.codex-work would otherwise report no status.
+Only entries that call ~/.orca/agent-hooks or bin/agent-state are copied; private hooks
+(worklog, herdr, ...) stay out of the work configs. Re-run after either set of hooks changes.
 """
 import json
 import os
@@ -16,11 +17,11 @@ PAIRS = [
     (f"{HOME}/.claude/settings.json", f"{HOME}/.claude-work/settings.json"),
     (f"{HOME}/.codex/hooks.json", f"{HOME}/.codex-work/hooks.json"),
 ]
-MARKER = "agent-hooks"
+MARKERS = ("agent-hooks", "agent-state")
 
 
 def is_orca(group):
-    return any(MARKER in h.get("command", "") for h in group.get("hooks", []))
+    return any(m in h.get("command", "") for h in group.get("hooks", []) for m in MARKERS)
 
 
 def sync(src, dst):
