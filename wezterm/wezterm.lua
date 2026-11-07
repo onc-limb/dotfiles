@@ -41,6 +41,8 @@ config.use_fancy_tab_bar = false
 
 -- タブの追加ボタンを非表示
 config.show_new_tab_button_in_tab_bar = false
+-- タブ名 (リポジトリ名  ブランチ) が切れないよう、既定の 16 文字より広くする
+config.tab_max_width = 40
 
 config.colors = {
 	foreground = palette.fg,
@@ -88,8 +90,16 @@ wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_wid
 	local edge_foreground = background
 	-- タブ名が明示的に設定されていればそれを優先 (LEADER+n の worktree タブ = worktree 名)。
 	-- 未設定ならアクティブペインのタイトル (Claude Code のセッション名など)
+	-- 作業環境のタブ (メインの nvim がある) は「リポジトリ名  ブランチ」。worktree でも元のリポジトリ名を出すので、
+	-- 同じリポジトリの worktree はブランチで見分けられる。git の外ならディレクトリ名 (LEADER+n / Cmd+t で付けたタブ名)。
+	-- それ以外 (エージェント一覧・素のシェル) は、タブ名が付いていればそれ、なければアクティブペインのタイトル
 	local name = tab.tab_title
-	if not name or name == "" then
+	local mux_tab = wezterm.mux.get_tab(tab.tab_id)
+	local main = mux_tab and workspace.find_role_pane(mux_tab, "main")
+	local git = main and require("statusbar").git_info(workspace.pane_cwd(main))
+	if git then
+		name = git.repo .. "  " .. wezterm.nerdfonts.dev_git_branch .. " " .. git.branch
+	elseif not name or name == "" then
 		name = tab.active_pane.title
 	end
 	-- 先頭に Cmd+数字 で選べる番号を付ける

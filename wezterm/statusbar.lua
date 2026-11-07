@@ -210,13 +210,45 @@ function M.right_status(window, pane)
 	end
 	append(cells, codex)
 
-	-- ワークスペース名
-	append(cells, SEP)
-	append(cells, {
-		{ Foreground = { Color = palette.accent } },
-		{ Attribute = { Intensity = "Bold" } },
-		{ Text = window:active_workspace() .. " " },
+	append(cells, { { Text = " " } })
+	return wezterm.format(cells)
+end
+
+-- git のリポジトリ名とブランチ名。worktree の中でも、元のリポジトリの名前を返す。
+-- タブバーの更新・タブ名の描画のたびに呼ばれるので、ディレクトリごとに数秒キャッシュする
+local git_cache = {}
+local GIT_TTL_SEC = 5
+function M.git_info(path)
+	local hit = git_cache[path]
+	local now = os.time()
+	if hit and now - hit.at < GIT_TTL_SEC then
+		return hit.info
+	end
+	local info = nil
+	local ok, out = wezterm.run_child_process({
+		"git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir", "--abbrev-ref", "HEAD",
 	})
+	if ok then
+		local common, branch = out:match("^([^\n]+)\n([^\n]+)")
+		if common then
+			local root = common:gsub("/+$", ""):match("^(.*)/[^/]+$") or common
+			info = { repo = root:match("([^/]+)$") or root, branch = branch }
+		end
+	end
+	git_cache[path] = { info = info, at = now }
+	return info
+end
+
+-- 左側のステータス: ワークスペース名 (ディレクトリとブランチはタブ名に出す)
+function M.left_status(window)
+	local cells = {
+		{ Background = { Color = palette.accent } },
+		{ Foreground = { Color = palette.accent_fg } },
+		{ Attribute = { Intensity = "Bold" } },
+		{ Text = "  ◆ " .. window:active_workspace() .. "  " },
+		"ResetAttributes",
+	}
+	append(cells, { { Foreground = { Color = palette.muted } }, { Text = "  │ " } })
 	return wezterm.format(cells)
 end
 
@@ -228,7 +260,7 @@ function M.setup(config, on_update)
 		if on_update then
 			on_update(window, pane)
 		end
-		window:set_left_status("")
+		window:set_left_status(M.left_status(window))
 		window:set_right_status(M.right_status(window, pane))
 	end)
 end

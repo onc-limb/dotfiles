@@ -133,6 +133,8 @@ printf "${BOLD}${C_YELLOW}5h${RESET}  ${C_YELLOW}%s${RESET} ${BOLD}%s${RESET} ${
 fi
 
 # ---- Line 3: Directory (parent/current) + git branch ----
+# WezTerm の中ではタブバーの左にディレクトリとブランチを出すので、ここでは省く
+[ -n "${WEZTERM_PANE:-}" ] && exit 0
 git_branch=""
 if [ -n "$cwd" ] && [ -d "$cwd" ]; then
   git_branch=$(git -C "$cwd" --no-optional-locks symbolic-ref --short HEAD 2>/dev/null \
