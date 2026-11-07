@@ -11,6 +11,7 @@ local M = {}
 M.state_dir = wezterm.home_dir .. "/.local/state/agents"
 
 local STATE_ICON = { working = "⏳", waiting = "💬", done = "✅", idle = "·" }
+M.STATE_ICON = STATE_ICON
 local TOOL_LABEL = { claude = "C", codex = "X" }
 local CIRCLED = { "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨" }
 -- この秒数より古い利用制限は薄く表示する (しばらくエージェントを使っていない)

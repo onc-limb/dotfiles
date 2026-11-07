@@ -1,22 +1,137 @@
 #!/usr/bin/env python3
-"""List every agent in the current WezTerm workspace (the dashboard tab).
+"""The dashboard tab: work environments (tabs) of the current WezTerm workspace and their agents.
+
+    workspace
+      └ work environment (= tab, one directory / worktree)   -> a card
+          └ agent (= pane running Claude Code / Codex)        -> a row in the card
 
 Joins `wezterm cli list` with the per-pane state files written by bin/agent-state.
-Agents waiting for input come first. Press 1-9 to jump to that agent, r to refresh.
+Colors come from wezterm/palette.lua so the dashboard matches WezTerm and nvim.
+The background is left unpainted so the WezTerm background shows through.
+
+Keys / mouse:
+  j/k ↓/↑  move between rows      h/l ←/→ Tab  move between cards
+  Enter    open the selection      click        open what was clicked
+  1-9      jump to agent           a            toggle cards / flat agent list (waiting first)
 """
 import json
 import os
+import re
 import select
+import shutil
 import subprocess
 import sys
 import termios
 import time
 import tty
+import unicodedata
+from urllib.parse import unquote, urlparse
 
 STATE_DIR = os.path.expanduser("~/.local/state/agents")
+HOME = os.path.expanduser("~")
+PALETTE_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "wezterm", "palette.lua")
+DASHBOARD_TITLE = "◆ agents"
 ORDER = {"waiting": 0, "working": 1, "done": 2, "idle": 3}
-ICON = {"working": "⏳ working", "waiting": "💬 waiting", "done": "✅ done", "idle": "·  idle"}
+STATE_LABEL = {"waiting": "入力待ち", "working": "作業中", "done": "完了", "idle": "待機"}
+TOOL_LABEL = {"claude": "Claude", "codex": "Codex"}
+WEEKDAY = ["月", "火", "水", "木", "金", "土", "日"]
 REFRESH_SEC = 2
+BRANCH_TTL_SEC = 10
+CARD_MIN_W = 48
+CARD_MAX_W = 72
+GAP = 2
+MARGIN = 2
+
+
+# ---------------------------------------------------------------- colors
+
+
+def load_palette():
+    colors = {
+        "fg": "#1F1F1F", "muted": "#6E6E6E", "accent": "#005FB8", "accent_fg": "#FFFFFF",
+        "surface": "#E6E6E6", "selection": "#ADD6FF", "ok": "#0B7A0B", "warn": "#9A6700", "error": "#B3261E",
+    }
+    try:
+        with open(PALETTE_FILE) as f:
+            seen = set()
+            for key, value in re.findall(r'^\s*(\w+)\s*=\s*"(#[0-9A-Fa-f]{6})"', f.read(), re.M):
+                if key in colors and key not in seen:
+                    colors[key] = value
+                    seen.add(key)
+    except OSError:
+        pass
+    return colors
+
+
+PAL = load_palette()
+STATE_COLOR = {"waiting": PAL["warn"], "working": PAL["accent"], "done": PAL["ok"], "idle": PAL["muted"]}
+RESET = "\033[0m"
+
+
+def rgb(hex_):
+    return int(hex_[1:3], 16), int(hex_[3:5], 16), int(hex_[5:7], 16)
+
+
+def style(fg=None, bg=None, bold=False):
+    s = ""
+    if bold:
+        s += "\033[1m"
+    if fg:
+        s += "\033[38;2;%d;%d;%dm" % rgb(fg)
+    if bg:
+        s += "\033[48;2;%d;%d;%dm" % rgb(bg)
+    return s
+
+
+# ---------------------------------------------------------------- text width
+
+
+def cwidth(c):
+    if unicodedata.combining(c):
+        return 0
+    return 2 if unicodedata.east_asian_width(c) in "WF" else 1
+
+
+def width(s):
+    return sum(cwidth(c) for c in s)
+
+
+def fit(s, n, align="left"):
+    """Truncate (with …) / pad to exactly n display columns."""
+    if n <= 0:
+        return ""
+    if width(s) > n:
+        out, w = "", 0
+        for c in s:
+            if w + cwidth(c) > n - 1:
+                break
+            out, w = out + c, w + cwidth(c)
+        s = out + "…"
+    pad = " " * (n - width(s))
+    return pad + s if align == "right" else s + pad
+
+
+class Line:
+    """A line made of styled segments, with a known display width."""
+
+    def __init__(self):
+        self.parts, self.w = [], 0
+
+    def add(self, text, fg=None, bg=None, bold=False):
+        self.parts.append((text, fg, bg, bold))
+        self.w += width(text)
+        return self
+
+    def pad_to(self, n, bg=None):
+        if self.w < n:
+            self.add(" " * (n - self.w), bg=bg)
+        return self
+
+    def render(self):
+        return "".join(style(fg, bg, bold) + text + RESET for text, fg, bg, bold in self.parts)
+
+
+# ---------------------------------------------------------------- data
 
 
 def wezterm_panes():
@@ -29,27 +144,115 @@ def wezterm_panes():
         return []
 
 
-def read_state(pane_id):
+def read_json(path):
     try:
-        with open(os.path.join(STATE_DIR, f"{pane_id}.json")) as f:
+        with open(path) as f:
             return json.load(f)
     except (OSError, ValueError):
         return None
 
 
+def pane_path(pane):
+    url = pane.get("cwd") or ""
+    return unquote(urlparse(url).path) if url.startswith("file://") else url
+
+
+def short_path(path):
+    path = path.rstrip("/") or "/"
+    return "~" + path[len(HOME):] if path == HOME or path.startswith(HOME + "/") else path
+
+
+_branch_cache = {}
+
+
+def git_info(path):
+    """(repo, branch) for a directory, or None outside git. In a worktree, repo is the original repository."""
+    hit = _branch_cache.get(path)
+    if hit and time.time() - hit[1] < BRANCH_TTL_SEC:
+        return hit[0]
+    info = None
+    try:
+        out = subprocess.run(
+            ["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=2,
+        ).stdout.split("\n")
+        if len(out) >= 2 and out[0]:
+            info = (os.path.basename(os.path.dirname(out[0].rstrip("/"))), out[1])
+    except (OSError, subprocess.SubprocessError):
+        pass
+    _branch_cache[path] = (info, time.time())
+    return info
+
+
 def collect():
+    """Returns (workspace, envs). envs keep the tab order; each env has its agents in screen order."""
     panes = wezterm_panes()
     me = os.environ.get("WEZTERM_PANE")
-    workspace = next((p["workspace"] for p in panes if str(p["pane_id"]) == me), None)
-    rows = []
+    mine = next((p for p in panes if str(p["pane_id"]) == me), None)
+    workspace = mine["workspace"] if mine else None
+    envs, by_tab = [], {}
     for p in panes:
         if workspace and p["workspace"] != workspace:
             continue
-        state = read_state(p["pane_id"])
+        env = by_tab.get(p["tab_id"])
+        if env is None:
+            title = p.get("tab_title") or ""
+            env = {"tab_id": p["tab_id"], "panes": [], "agents": [], "title": title}
+            env["is_dashboard"] = bool(mine and p["tab_id"] == mine["tab_id"]) or title == DASHBOARD_TITLE
+            by_tab[p["tab_id"]] = env
+            envs.append(env)
+        env["panes"].append(p)
+        state = read_json(os.path.join(STATE_DIR, f"{p['pane_id']}.json"))
         if state:
-            rows.append((p, state))
-    rows.sort(key=lambda r: (ORDER.get(r[1].get("state"), 9), -(r[1].get("updated_at") or 0)))
-    return workspace, rows
+            env["agents"].append((p, state))
+    for env in envs:
+        env["panes"].sort(key=lambda p: (p["left_col"], p["top_row"]))
+        env["agents"].sort(key=lambda r: (r[0]["left_col"], r[0]["top_row"]))
+        # The main pane (nvim) is the top-left one; its directory names the environment
+        env["main_pane"] = env["panes"][0]
+        env["path"] = pane_path(env["main_pane"])
+        # Same name as the WezTerm tab: "<repo>  <branch>" (worktrees show the original repository's name)
+        git = None if env["is_dashboard"] else git_info(env["path"])
+        env["name"] = git[0] if git else (env["title"] or os.path.basename(env["path"].rstrip("/")) or env["path"])
+        env["branch"] = git[1] if git else ""
+    # The dashboard tab itself goes last, and only when meta agents run in it
+    envs = [e for e in envs if not e["is_dashboard"]] + [e for e in envs if e["is_dashboard"] and e["agents"]]
+    return workspace, envs
+
+
+def quotas():
+    rows = []
+    try:
+        names = sorted(os.listdir(STATE_DIR))
+    except OSError:
+        return rows
+    for name in names:
+        if name.startswith("quota-") and name.endswith(".json"):
+            data = read_json(os.path.join(STATE_DIR, name))
+            if data and isinstance(data.get("windows"), dict):
+                rows.append(data)
+    return rows
+
+
+# ---------------------------------------------------------------- formatting
+
+
+def reset_text(key, ts):
+    t = time.localtime(ts)
+    if key == "5h":
+        return time.strftime("%H:%M", t)
+    return f"{t.tm_mon}/{t.tm_mday}({WEEKDAY[t.tm_wday]}) {time.strftime('%H:%M', t)}"
+
+
+def until(ts):
+    sec = int(ts - time.time())
+    if sec <= 0:
+        return ""
+    if sec < 3600:
+        return f"あと{sec // 60}分"
+    if sec < 86400:
+        return f"あと{sec // 3600}時間{sec % 3600 // 60}分"
+    return f"あと{sec // 86400}日{sec % 86400 // 3600}時間"
 
 
 def age(ts):
@@ -57,26 +260,256 @@ def age(ts):
         return ""
     sec = int(time.time() - ts)
     if sec < 60:
-        return f"{sec}s"
+        return f"{sec}秒前"
     if sec < 3600:
-        return f"{sec // 60}m"
-    return f"{sec // 3600}h"
+        return f"{sec // 60}分前"
+    return f"{sec // 3600}時間前"
 
 
-def render(workspace, rows):
-    out = ["\033[H\033[2J", f"\033[1mAgents\033[0m  workspace: {workspace or '?'}\n\n"]
-    if not rows:
-        out.append("  (エージェントは動いていません)\n")
-    for i, (p, s) in enumerate(rows[:9], 1):
-        tab = p.get("tab_title") or os.path.basename((p.get("cwd") or "").rstrip("/"))
-        ctx = f"{s['ctx_pct']}%" if s.get("ctx_pct") is not None else ""
-        out.append(
-            f"  {i}  {tab[:24]:<24} {s.get('tool', '?'):<7} {ICON.get(s.get('state'), '·'):<11}"
-            f" {(s.get('model') or '')[:14]:<14} {ctx:>4}  {age(s.get('updated_at')):>4}\n"
-        )
-    out.append("\n  \033[2m1-9: そのエージェントへ移動   r: 更新\033[0m\n")
-    sys.stdout.write("".join(out))
-    sys.stdout.flush()
+def pct_color(pct):
+    return PAL["error"] if pct >= 80 else PAL["warn"] if pct >= 60 else PAL["accent"]
+
+
+def env_state(env):
+    states = [s.get("state") for _, s in env["agents"]]
+    return min(states, key=lambda s: ORDER.get(s, 9)) if states else None
+
+
+# ---------------------------------------------------------------- widgets
+
+
+def card(w, title_line, body, selected=False):
+    """A rounded card of width w. title_line / body are Line objects (inner width w-4)."""
+    border = PAL["accent"] if selected else PAL["muted"]
+    inner = w - 4
+    out = []
+    top = Line().add("╭─ ", fg=border)
+    for text, fg, bg, bold in title_line.parts:
+        top.add(text, fg, bg, bold)
+    top.add(" ", fg=border)
+    top.add("─" * max(0, w - 1 - top.w), fg=border).add("╮", fg=border)
+    out.append(top)
+    for line in body:
+        row = Line().add("│ ", fg=border)
+        for text, fg, bg, bold in line.parts:
+            row.add(text, fg, bg, bold)
+        row.pad_to(inner + 2, bg=line.parts[-1][2] if line.parts and getattr(line, "fill", False) else None)
+        row.add(" │", fg=border)
+        out.append(row)
+    out.append(Line().add("╰" + "─" * (w - 2) + "╯", fg=border))
+    return out
+
+
+def meter(pct, n):
+    filled = max(0, min(n, round(pct / 100 * n)))
+    return Line().add("━" * filled, fg=pct_color(pct)).add("─" * (n - filled), fg=PAL["surface"])
+
+
+def quota_card(q, w):
+    tool = TOOL_LABEL.get(q.get("tool"), q.get("tool", "?"))
+    title = Line().add(tool, fg=PAL["fg"], bold=True).add(f"  {q.get('profile', '')}", fg=PAL["muted"])
+    inner = w - 4
+    body = []
+    now = time.time()
+    for key, label in (("5h", "5時間"), ("week", "週間")):
+        win = q["windows"].get(key)
+        if not win or win.get("pct") is None:
+            continue
+        resets = win.get("resets_at")
+        line = Line().add(fit(label, 6), fg=PAL["muted"])
+        if resets and resets < now:
+            body.append(line.add("リセット済み", fg=PAL["ok"]))
+            body.append(Line())
+            continue
+        pct = round(win["pct"])
+        bar = meter(pct, max(8, inner - 6 - 6))
+        for part in bar.parts:
+            line.add(*part)
+        line.add(fit(f"{pct}%", 6, "right"), fg=pct_color(pct), bold=True)
+        body.append(line)
+        sub = Line().add(" " * 6)
+        if resets:
+            sub.add(f"{reset_text(key, resets)}", fg=PAL["fg"]).add(f"   {until(resets)}", fg=PAL["muted"])
+        body.append(sub)
+    return card(w, title, body)
+
+
+def agent_line(num, state, inner, selected):
+    bg = PAL["selection"] if selected else None
+    st = state.get("state")
+    ctx = state.get("ctx_pct")
+    tail = f"{ctx}%" if ctx is not None else ""
+    line = Line()
+    line.fill = selected
+    line.add(f" {num} ", fg=PAL["accent_fg"] if selected else PAL["muted"], bg=PAL["accent"] if selected else bg, bold=True)
+    line.add(" ", bg=bg)
+    line.add(fit(TOOL_LABEL.get(state.get("tool"), state.get("tool", "?")), 8), fg=PAL["fg"], bg=bg, bold=True)
+    line.add("● ", fg=STATE_COLOR.get(st, PAL["muted"]), bg=bg)
+    line.add(fit(STATE_LABEL.get(st, "?"), 10), fg=STATE_COLOR.get(st, PAL["muted"]), bg=bg)
+    rest = inner - line.w - 6 - 8
+    line.add(fit(state.get("model") or "", max(0, rest)), fg=PAL["muted"], bg=bg)
+    line.add(fit(tail, 6, "right"), fg=pct_color(ctx) if ctx is not None else PAL["muted"], bg=bg)
+    line.add(fit(age(state.get("updated_at")), 8, "right"), fg=PAL["muted"], bg=bg)
+    return line
+
+
+# ---------------------------------------------------------------- screen
+
+
+class Screen:
+    def __init__(self):
+        self.lines = []  # list of Line
+        self.hits = []  # (row, col0, col1, item index)
+
+    def blank(self, n=1):
+        for _ in range(n):
+            self.lines.append(Line())
+
+    def put(self, line):
+        self.lines.append(line)
+
+    def put_cards(self, cards, cols, hit_items=None):
+        """cards: list of (list[Line], width). Lays them out in rows of `cols` columns."""
+        for start in range(0, len(cards), cols):
+            row_cards = cards[start:start + cols]
+            height = max(len(c[0]) for c in row_cards)
+            top = len(self.lines)
+            for i in range(height):
+                line = Line().add(" " * MARGIN)
+                for j, (lines, w) in enumerate(row_cards):
+                    if j:
+                        line.add(" " * GAP)
+                    piece = lines[i] if i < len(lines) else Line().add(" " * w)
+                    for part in piece.parts:
+                        line.add(*part)
+                    line.pad_to(MARGIN + sum(c[1] for c in row_cards[: j + 1]) + GAP * j)
+                self.lines.append(line)
+            if hit_items:
+                col = MARGIN
+                for j, (lines, w) in enumerate(row_cards):
+                    for offset, item in hit_items[start + j]:
+                        self.hits.append((top + offset, col, col + w, item))
+                    col += w + GAP
+
+    def draw(self, rows):
+        out = ["\033[H"]
+        for line in self.lines[:rows]:
+            out.append(line.render() + "\033[K\r\n")
+        out.append("\033[J")
+        sys.stdout.write("".join(out))
+        sys.stdout.flush()
+
+
+def build_items(envs, flat):
+    """Selectable items in navigation order: dicts with kind / key / pane / env / state / num."""
+    items, num = [], 0
+    if flat:
+        agents = [(env, p, s) for env in envs for p, s in env["agents"]]
+        agents.sort(key=lambda r: (ORDER.get(r[2].get("state"), 9), -(r[2].get("updated_at") or 0)))
+        for env, p, s in agents:
+            num += 1
+            items.append({"kind": "agent", "key": ("p", p["pane_id"]), "pane": p, "env": env, "state": s, "num": num})
+        return items
+    for env in envs:
+        items.append({"kind": "env", "key": ("t", env["tab_id"]), "pane": env["main_pane"], "env": env})
+        for p, s in env["agents"]:
+            num += 1
+            items.append({"kind": "agent", "key": ("p", p["pane_id"]), "pane": p, "env": env, "state": s, "num": num})
+    return items
+
+
+def layout(workspace, envs, items, cursor, flat):
+    cols_total, rows_total = shutil.get_terminal_size((120, 40))
+    avail = cols_total - MARGIN * 2
+    scr = Screen()
+    current = items[cursor] if items else None
+
+    # ---- header
+    n_envs = sum(1 for e in envs if not e["is_dashboard"])
+    all_states = [s.get("state") for e in envs for _, s in e["agents"]]
+    scr.blank()
+    head = Line().add(" " * MARGIN).add(f"  ◆ {workspace or '?'}  ", fg=PAL["accent_fg"], bg=PAL["accent"], bold=True)
+    head.add(f"   作業環境 {n_envs}", fg=PAL["fg"]).add(f"   エージェント {len(all_states)}", fg=PAL["fg"])
+    summary = Line()
+    for st in ("waiting", "working", "done"):
+        summary.add("   ● ", fg=STATE_COLOR[st]).add(f"{STATE_LABEL[st]} {all_states.count(st)}", fg=PAL["fg"])
+    clock = f"   {time.strftime('%H:%M:%S')}"
+    head.add(" " * max(1, MARGIN + avail - head.w - summary.w - width(clock)))
+    for part in summary.parts:
+        head.add(*part)
+    head.add(clock, fg=PAL["muted"])
+    scr.put(head)
+    scr.blank()
+
+    # ---- quotas
+    qs = quotas()
+    if qs:
+        scr.put(Line().add(" " * MARGIN).add("利用制限", fg=PAL["muted"], bold=True))
+        qcols = max(1, min(len(qs), (avail + GAP) // (CARD_MIN_W + GAP)))
+        qw = min(CARD_MAX_W, (avail - GAP * (qcols - 1)) // qcols)
+        scr.put_cards([(quota_card(q, qw), qw) for q in qs], qcols)
+        scr.blank()
+
+    # ---- environments / agents
+    ncols = max(1, (avail + GAP) // (CARD_MIN_W + GAP))
+    if flat:
+        scr.put(Line().add(" " * MARGIN).add("エージェント  ", fg=PAL["muted"], bold=True).add("入力待ちが先頭", fg=PAL["muted"]))
+        w = avail
+        body, hit = [], []
+        for idx, it in enumerate(items):
+            line = agent_line(it["num"], it["state"], w - 4 - 18, idx == cursor)
+            line.add(fit("  " + it["env"]["name"], 18), fg=PAL["muted"], bg=PAL["selection"] if idx == cursor else None)
+            hit.append((len(body) + 1, idx))
+            body.append(line)
+        if not body:
+            body.append(Line().add("エージェントは動いていません", fg=PAL["muted"]))
+        scr.put_cards([(card(w, Line().add("全エージェント", fg=PAL["fg"], bold=True), body, True), w)], 1, [hit])
+    else:
+        scr.put(Line().add(" " * MARGIN).add("作業環境", fg=PAL["muted"], bold=True))
+        ncols = max(1, min(ncols, len(envs) or 1))
+        w = min(CARD_MAX_W, (avail - GAP * (ncols - 1)) // ncols)
+        cards, hits = [], []
+        for env in envs:
+            env_items = [(i, it) for i, it in enumerate(items) if it["env"] is env]
+            selected = current is not None and current["env"] is env
+            st = env_state(env)
+            title = Line().add("● ", fg=STATE_COLOR.get(st, PAL["surface"]))
+            name = "一覧タブ" if env["is_dashboard"] else env["name"]
+            env_selected = selected and current["kind"] == "env"
+            title.add(fit(name, w - 12) if width(name) > w - 12 else name, fg=PAL["accent"] if env_selected else PAL["fg"], bold=True)
+            if env["branch"]:
+                title.add("  \ue725 " + fit(env["branch"], max(1, w - 16 - title.w)) if width(env["branch"]) > w - 16 - title.w else "  \ue725 " + env["branch"], fg=PAL["ok"])
+            body = []
+            sub = Line().add(short_path(env["path"]), fg=PAL["muted"])
+            body.append(sub)
+            body.append(Line())
+            hit = [(0, env_items[0][0]), (1, env_items[0][0])]
+            for i, it in env_items[1:]:
+                hit.append((len(body) + 1, i))
+                body.append(agent_line(it["num"], it["state"], w - 4, i == cursor))
+            if len(env_items) == 1:
+                body.append(Line().add("エージェントなし  ", fg=PAL["muted"]).add("LEADER c / x で起動", fg=PAL["muted"]))
+            cards.append((card(w, title, body, selected), w))
+            hits.append(hit)
+        if cards:
+            scr.put_cards(cards, ncols, hits)
+        else:
+            scr.put(Line().add(" " * MARGIN).add("作業環境がありません。Cmd+t か LEADER n で開けます", fg=PAL["muted"]))
+
+    # ---- footer (key hints as pills), pinned to the bottom when there is room
+    hints = [("↵", "開く"), ("j k", "移動"), ("h l", "カード"), ("1-9", "エージェントへ"),
+             ("a", "カード表示" if flat else "エージェント一覧"), ("クリック", "開く")]
+    foot = Line().add(" " * MARGIN)
+    for key, label in hints:
+        foot.add(f" {key} ", fg=PAL["fg"], bg=PAL["surface"], bold=True).add(f" {label}   ", fg=PAL["muted"])
+    while len(scr.lines) < rows_total - 2:
+        scr.blank()
+    scr.blank()
+    scr.put(foot)
+    return scr, rows_total
+
+
+# ---------------------------------------------------------------- input
 
 
 def jump(pane):
@@ -84,24 +517,73 @@ def jump(pane):
     subprocess.run(["wezterm", "cli", "activate-pane", "--pane-id", str(pane["pane_id"])], capture_output=True)
 
 
+def read_input():
+    """Returns a key name, or ("click", x, y) for a left click (SGR mouse, 1-based)."""
+    data = os.read(sys.stdin.fileno(), 64).decode(errors="ignore")
+    m = re.match(r"\033\[<(\d+);(\d+);(\d+)([Mm])", data)
+    if m:
+        button, x, y, kind = int(m[1]), int(m[2]), int(m[3]), m[4]
+        if button == 0 and kind == "M":
+            return ("click", x, y)
+        if button in (64, 65):
+            return "up" if button == 64 else "down"
+        return ""
+    keys = {"\033[A": "up", "\033[B": "down", "\033[C": "right", "\033[D": "left", "\t": "right", "\033[Z": "left"}
+    return keys.get(data, data[:1])
+
+
 def main():
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     tty.setcbreak(fd)
-    sys.stdout.write("\033[?25l")  # hide cursor
+    # alternate screen, hide cursor, mouse (press + SGR coordinates)
+    sys.stdout.write("\033[?1049h\033[?25l\033[?1000h\033[?1006h")
+    cursor_key, flat = None, False
     try:
         while True:
-            workspace, rows = collect()
-            render(workspace, rows)
+            workspace, envs = collect()
+            items = build_items(envs, flat)
+            keys = [it["key"] for it in items]
+            cursor = keys.index(cursor_key) if cursor_key in keys else 0
+            scr, rows = layout(workspace, envs, items, cursor, flat)
+            scr.draw(rows)
             ready, _, _ = select.select([sys.stdin], [], [], REFRESH_SEC)
             if not ready:
                 continue
-            key = sys.stdin.read(1)
-            if key.isdigit() and 1 <= int(key) <= min(len(rows), 9):
-                jump(rows[int(key) - 1][0])
+            key = read_input()
+            env_starts = [i for i, it in enumerate(items) if it["kind"] == "env"]
+            if isinstance(key, tuple):
+                _, x, y = key
+                for row, c0, c1, idx in scr.hits:
+                    if row == y - 1 and c0 <= x - 1 < c1:
+                        cursor = idx
+                        jump(items[idx]["pane"])
+                        break
+            elif key in ("j", "down") and items:
+                cursor = min(cursor + 1, len(items) - 1)
+            elif key in ("k", "up") and items:
+                cursor = max(cursor - 1, 0)
+            elif key in ("l", "right") and env_starts:
+                cursor = next((i for i in env_starts if i > cursor), env_starts[0])
+            elif key in ("h", "left") and env_starts:
+                start = max(i for i in env_starts if i <= cursor)
+                prev = [i for i in env_starts if i < start]
+                cursor = prev[-1] if prev else env_starts[-1]
+            elif key in ("\r", "\n") and items:
+                jump(items[cursor]["pane"])
+            elif key == "a":
+                flat, cursor = not flat, 0
+                cursor_key = None
+                continue
+            elif key.isdigit() and key != "0":
+                agents = [it for it in items if it["kind"] == "agent"]
+                if int(key) <= len(agents):
+                    jump(agents[int(key) - 1]["pane"])
+            cursor_key = keys[cursor] if items and cursor < len(keys) else None
     finally:
+        sys.stdout.write("\033[?1000l\033[?1006l\033[?25h\033[?1049l")
+        sys.stdout.flush()
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        sys.stdout.write("\033[?25h")
 
 
 if __name__ == "__main__":

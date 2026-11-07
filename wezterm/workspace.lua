@@ -321,14 +321,83 @@ function M.focus_agent(n)
 	end)
 end
 
+local function find_dashboard_tab(mux_window)
+	for _, t in ipairs(mux_window:tabs()) do
+		if t:get_title() == M.DASHBOARD_TITLE or M.is_dashboard(t) then
+			return t
+		end
+	end
+	return nil
+end
+
+-- LEADER+w: ワークスペースを選ぶ。作業環境 (タブ) の数とエージェントの状態を添えて並べ、
+-- 入ったらエージェント一覧タブ (作業環境 → エージェントの一覧) を表示する
+function M.pick_workspace()
+	return wezterm.action_callback(function(window, pane)
+		local agents = statusbar.read_agents()
+		local summary, order = {}, {}
+		for _, w in ipairs(wezterm.mux.all_windows()) do
+			local name = w:get_workspace()
+			if not summary[name] then
+				summary[name] = { envs = 0, states = {} }
+				table.insert(order, name)
+			end
+			for _, t in ipairs(w:tabs()) do
+				if not (t:get_title() == M.DASHBOARD_TITLE or M.is_dashboard(t)) then
+					summary[name].envs = summary[name].envs + 1
+				end
+				for _, item in ipairs(statusbar.agents_in_tab(t, agents)) do
+					table.insert(summary[name].states, statusbar.STATE_ICON[item.agent.state] or "·")
+				end
+			end
+		end
+		local current = window:active_workspace()
+		local choices = {}
+		for _, name in ipairs(order) do
+			local s = summary[name]
+			table.insert(choices, {
+				id = name,
+				label = string.format(
+					"%s%s   作業環境 %d   %s",
+					name == current and "● " or "  ",
+					name,
+					s.envs,
+					#s.states > 0 and table.concat(s.states, " ") or ""
+				),
+			})
+		end
+		window:perform_action(
+			act.InputSelector({
+				title = "workspace",
+				fuzzy = true,
+				choices = choices,
+				action = wezterm.action_callback(function(win, p, id)
+					if not id then
+						return
+					end
+					-- 切り替える前に、行き先のエージェント一覧タブをアクティブにしておく
+					for _, w in ipairs(wezterm.mux.all_windows()) do
+						if w:get_workspace() == id then
+							local t = find_dashboard_tab(w)
+							if t then
+								t:activate()
+							end
+						end
+					end
+					win:perform_action(act.SwitchToWorkspace({ name = id }), p)
+				end),
+			}),
+			pane
+		)
+	end)
+end
+
 -- Cmd+0: エージェント一覧タブへ
 function M.focus_dashboard()
 	return wezterm.action_callback(function(window)
-		for _, t in ipairs(window:mux_window():tabs()) do
-			if t:get_title() == M.DASHBOARD_TITLE or M.is_dashboard(t) then
-				t:activate()
-				return
-			end
+		local t = find_dashboard_tab(window:mux_window())
+		if t then
+			t:activate()
 		end
 	end)
 end

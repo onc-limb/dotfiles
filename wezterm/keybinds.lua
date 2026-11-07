@@ -26,10 +26,10 @@ return {
 			action = wezterm.action.SendString("\n"),
 		},
 		{
-			-- workspaceの切り替え
+			-- workspaceの切り替え (作業環境の数とエージェントの状態つき。入るとエージェント一覧タブを表示)
 			key = "w",
 			mods = "LEADER",
-			action = act.ShowLauncherArgs({ flags = "WORKSPACES", title = "Select workspace" }),
+			action = workspace.pick_workspace(),
 		},
 		{
 			--workspaceの名前変更
