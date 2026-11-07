@@ -58,7 +58,6 @@ main() {
 
     # ~/.config directory links
     create_link "$DOTFILES_DIR/aerospace" "$HOME/.config/aerospace"
-    create_link "$DOTFILES_DIR/borders" "$HOME/.config/borders"
     create_link "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
     create_link "$DOTFILES_DIR/wezterm" "$HOME/.config/wezterm"
     create_link "$DOTFILES_DIR/yazi" "$HOME/.config/yazi"

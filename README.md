@@ -5,7 +5,6 @@
 ## 含まれる設定
 
 - `aerospace/` - AeroSpace ウィンドウマネージャー設定
-- `borders/` - Borders設定
 - `claude/` - Claude Code設定（skills, agents, テンプレート）
 - `herdr/` - Herdr（AI エージェント用ターミナルマルチプレクサ）設定
 - `karabiner/` - Karabiner-Elements（キーリマップ。Caps→Ctrl、左右 Cmd 単押しで英数/かな、Ctrl 単押しで英数⇄かなトグル、Realforce の Win/Alt 入れ替え）設定
@@ -34,7 +33,6 @@ cd ~/dotfiles
 | ソース | リンク先 |
 |-------|---------|
 | `aerospace/` | `~/.config/aerospace` |
-| `borders/` | `~/.config/borders` |
 | `nvim/` | `~/.config/nvim` |
 | `wezterm/` | `~/.config/wezterm` |
 | `herdr/` | `~/.config/herdr` |
