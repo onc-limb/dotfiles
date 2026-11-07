@@ -7,8 +7,8 @@
 --   カードは一段浮いた色 (card) にする。
 --
 -- 状態ファイル (~/.local/state/wezterm/):
---   scheme : 配色パターンの id (instrument / aviation / thermal。既定は aviation)
---   theme  : light / dark (既定は dark)
+--   scheme : 配色パターンの id (instrument / aviation / thermal。既定は thermal)
+--   theme  : light / dark (既定は light)
 -- LEADER+Shift+b でパターンとモードの 6 通りから選び、LEADER+b でライト / ダークだけを切り替える
 -- 返すのは今の配色 (scheme / mode に名前が入る)
 local M = {}
@@ -16,8 +16,8 @@ local M = {}
 local STATE_DIR = (os.getenv("HOME") or "") .. "/.local/state/wezterm"
 M.mode_file = STATE_DIR .. "/theme"
 M.scheme_file = STATE_DIR .. "/scheme"
-M.default_scheme = "aviation"
-M.default_mode = "dark"
+M.default_scheme = "thermal"
+M.default_mode = "light"
 
 -- 配色パターン。font は本文のフォント (WezTerm の中で動く nvim・エージェントも同じフォントになる)。
 -- 各モードの色:
@@ -44,7 +44,7 @@ M.schemes = {
 	thermal = {
 		label = "Thermal     サーモグラフィ (紫から橙の熱の色)",
 		font = { family = "FiraCode Nerd Font Mono", light = "Medium", dark = "Regular" },
-		light = { bg = "#F4F2F7", chrome = "#E3DFEA", card = "#FDFCFE", fg = "#17121F", muted = "#6B6478", accent = "#E05A00", accent_fg = "#FFFFFF", border = "#D2CCDB", sel = "#FFE0C2", ok = "#137A5A", warn = "#A87A00", err = "#D11A2A", kw = "#6A35C9", str = "#A87A00", fn = "#E05A00", num = "#C21858", com = "#8A8396", blue = "#3D4FC9", magenta = "#C21858", cyan = "#0F7C8C" },
+		light = { bg = "#EEE9F6", chrome = "#DDD5EC", card = "#FAF8FD", fg = "#17121F", muted = "#665E78", accent = "#E05A00", accent_fg = "#FFFFFF", border = "#CDC4DE", sel = "#FFE0C2", ok = "#137A5A", warn = "#A87A00", err = "#D11A2A", kw = "#6A35C9", str = "#A87A00", fn = "#E05A00", num = "#C21858", com = "#8A8396", blue = "#3D4FC9", magenta = "#C21858", cyan = "#0F7C8C" },
 		dark = { bg = "#110E19", chrome = "#0A0810", card = "#1C1726", fg = "#ECE6F2", muted = "#8C8499", accent = "#FF7A00", accent_fg = "#110E19", border = "#262036", sel = "#3D2414", ok = "#57D9A3", warn = "#FFC800", err = "#FF3B3B", kw = "#B07CFF", str = "#FFC800", fn = "#FF7A00", num = "#FF3B6E", com = "#625A70", blue = "#7C8CFF", magenta = "#FF5BA0", cyan = "#5CD6E0" },
 	},
 }
@@ -95,6 +95,23 @@ function M.build(c, mode)
 		hover = mix(c.chrome, c.fg, 0.07),
 		tab_fg = mix(c.fg, c.chrome, 0.3),
 	}
+	-- 装飾の色 (エージェント一覧タブとタブバーだけで使う): パターンの色を色相の順に並べたもの。
+	-- 濃い地に文字を載せると読みにくいので、札の地 (deco) はその色を背景に寄せた淡い色にし、
+	-- 文字 (deco_ink) は同じ色相を文字の色に寄せた色 (ライトでは濃く、ダークでは明るく) にする。
+	-- tint / ink は任意の色 (状態・使用率など) を札にするときにも使う (agent-dashboard も同じ式)
+	p.tint = function(col)
+		return mix(col, c.bg, dark and 0.6 or 0.65)
+	end
+	p.ink = function(col)
+		return mix(col, c.fg, dark and 0.35 or 0.5)
+	end
+	p.deco_base = { c.magenta, c.err, c.accent, c.warn, c.ok, c.cyan, c.blue }
+	p.deco, p.deco_ink = {}, {}
+	for i, col in ipairs(p.deco_base) do
+		p.deco[i], p.deco_ink[i] = p.tint(col), p.ink(col)
+		p["deco" .. i], p["ink" .. i] = p.deco[i], p.deco_ink[i]
+	end
+
 	-- ANSI 色。明るい版は、ダークでは白に、ライトでは黒に少し寄せる
 	local toward = dark and "#FFFFFF" or "#000000"
 	local base = {

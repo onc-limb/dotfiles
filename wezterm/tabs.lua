@@ -1,11 +1,13 @@
 -- 下のタブバーのタブの見た目 (左端のワークスペースの札は statusbar.lua)
 --
---    default     1 ◆ agents  [ 2 dotfiles  main ● ]  3 app  feat-a ●
+--    default   [1] ◆ agents  [2  dotfiles   main ⏳]  [3] app   feat-a 💬
 --
 -- - タブバーは「fancy」版を使い、本文の等幅フォントではなく UI 用の可変幅フォントで描く
 --   (ターミナルではなくアプリのタブ列に見せるため)
--- - タブバーの地は本文より一段沈んだ色 (chrome)。アクティブなタブは本文と同じ色で浮かせる
--- - タブの右端の ● は、そのタブで一番急ぎのエージェントの状態 (入力待ち > 作業中 > 完了)
+-- - タブバーの地は本文より一段沈んだ色 (chrome)。タブごとに装飾の色 (palette.deco) を順に割り当て、
+--   アクティブなタブは名前まで、非アクティブなタブは番号だけをその色の札にする。
+--   札は淡い地に同じ色相の濃い文字 (palette.deco_ink) で、濃い地に文字を載せない
+-- - タブの右端の 💬 ⏳ ✅ は、そのタブで一番急ぎのエージェントの状態 (入力待ち > 作業中 > 完了)
 local wezterm = require("wezterm")
 local palette = require("palette")
 local statusbar = require("statusbar")
@@ -15,7 +17,8 @@ local M = {}
 
 local BRANCH = wezterm.nerdfonts.dev_git_branch
 local STATE_ORDER = { waiting = 1, working = 2, done = 3, idle = 4 }
-local STATE_COLOR = { waiting = palette.warn, working = palette.accent_text, done = palette.ok }
+-- タブの右端に出す、そのタブで一番急ぎのエージェントの状態
+local STATE_ICON = { waiting = "💬", working = "⏳", done = "✅" }
 
 -- エージェントの状態ファイルは、タブを描くたびではなく 1 秒に 1 回だけ読む
 local agents_cache = { at = -1, agents = {} }
@@ -69,21 +72,37 @@ local function format_tab(tab, max_width)
 	end
 	name = wezterm.truncate_right(name, math.max(4, room))
 
+	-- タブごとに装飾の色を順に割り当てる。アクティブなタブは名前まで色の札にし、
+	-- 非アクティブなタブは番号だけを色の札にする
+	local idx = tab.tab_index % #palette.deco + 1
+	local color, ink = palette.deco[idx], palette.deco_ink[idx]
 	local cells = {
-		{ Foreground = { Color = tab.is_active and palette.accent_text or palette.muted } },
-		{ Text = "  " .. (tab.tab_index + 1) .. "  " },
-		{ Foreground = { Color = tab.is_active and palette.fg or palette.tab_fg } },
-		{ Attribute = { Intensity = tab.is_active and "Bold" or "Normal" } },
-		{ Text = name },
-		"ResetAttributes",
+		{ Background = { Color = color } },
+		{ Foreground = { Color = ink } },
+		{ Attribute = { Intensity = "Bold" } },
+		{ Text = " " .. (tab.tab_index + 1) .. " " },
 	}
+	if tab.is_active then
+		table.insert(cells, { Text = " " .. name })
+		if branch then
+			table.insert(cells, "ResetAttributes")
+			table.insert(cells, { Background = { Color = color } })
+			table.insert(cells, { Foreground = { Color = ink } })
+			table.insert(cells, { Text = "   " .. BRANCH .. " " .. branch })
+		end
+		table.insert(cells, { Text = " " .. (state and STATE_ICON[state] and (STATE_ICON[state] .. " ") or "") })
+		table.insert(cells, "ResetAttributes")
+		return cells
+	end
+	table.insert(cells, "ResetAttributes")
+	table.insert(cells, { Foreground = { Color = palette.tab_fg } })
+	table.insert(cells, { Text = "  " .. name })
 	if branch then
-		table.insert(cells, { Foreground = { Color = tab.is_active and palette.accent_text or palette.muted } })
+		table.insert(cells, { Foreground = { Color = ink } })
 		table.insert(cells, { Text = "   " .. BRANCH .. " " .. branch })
 	end
-	if state and STATE_COLOR[state] then
-		table.insert(cells, { Foreground = { Color = STATE_COLOR[state] } })
-		table.insert(cells, { Text = "  ●" })
+	if state and STATE_ICON[state] then
+		table.insert(cells, { Text = "  " .. STATE_ICON[state] })
 	end
 	table.insert(cells, { Text = "  " })
 	return cells

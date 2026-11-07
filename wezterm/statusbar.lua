@@ -92,18 +92,9 @@ local function current_profile(tab, list)
 	return "private"
 end
 
-local function pct_color(pct)
-	if pct >= 80 then
-		return palette.error
-	elseif pct >= 60 then
-		return palette.warn
-	end
-	return palette.fg
-end
+local WEEKDAY = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }
 
-local WEEKDAY = { "日", "月", "火", "水", "木", "金", "土" }
-
--- リセット時刻: 5 時間枠は "14:30"、週次枠は "水 18:00" (7 日以内なので曜日で一意に決まる)
+-- リセット時刻: 5 時間枠は "14:30"、週次枠は "Wed 18:00" (7 日以内なので曜日で一意に決まる)
 local function reset_label(key, ts)
 	if not ts then
 		return nil
@@ -114,7 +105,30 @@ local function reset_label(key, ts)
 	return WEEKDAY[tonumber(os.date("%w", ts)) + 1] .. os.date(" %H:%M", ts)
 end
 
--- 利用制限 1 ツール分: 例 "C 5h 32% 14:30 週 18% 水 18:00"
+-- 利用制限 1 ツール分: 例 "C 5h 32% 14:30 w 18% Wed 18:00"
+-- 色の札。右側のステータスを派手にするため。color の淡い地に、同じ色相の濃い文字で描く (濃い地に文字を載せない)
+local function chip(text, color, bold)
+	return {
+		{ Background = { Color = palette.tint(color) } },
+		{ Foreground = { Color = palette.ink(color) } },
+		{ Attribute = { Intensity = bold and "Bold" or "Normal" } },
+		{ Text = " " .. text .. " " },
+		"ResetAttributes",
+	}
+end
+
+-- 使用率の札の色: 余裕があれば緑、60% 以上で黄、80% 以上で赤
+local function pct_color(pct)
+	if pct >= 80 then
+		return palette.error
+	elseif pct >= 60 then
+		return palette.warn
+	end
+	return palette.ok
+end
+
+local QUOTA_COLOR = { claude = 3, codex = 7 }
+
 local function quota_cells(tool, profile)
 	local data = read_json(string.format("%s/quota-%s-%s.json", M.state_dir, tool, profile))
 	if not data or type(data.windows) ~= "table" then
@@ -122,8 +136,9 @@ local function quota_cells(tool, profile)
 	end
 	local now = os.time()
 	local stale = (now - (data.updated_at or 0)) > QUOTA_STALE_SEC
-	local cells = { { Foreground = { Color = palette.muted } }, { Text = TOOL_LABEL[tool] or tool } }
-	for _, w in ipairs({ { key = "5h", label = "5h" }, { key = "week", label = "週" } }) do
+	-- 例: [C] [5h 32%] 14:30  [w 18%] Wed 18:00
+	local cells = chip(TOOL_LABEL[tool] or tool, palette.deco_base[QUOTA_COLOR[tool] or 1], true)
+	for _, w in ipairs({ { key = "5h", label = "5h" }, { key = "week", label = "w" } }) do
 		local v = data.windows[w.key]
 		if v and v.pct then
 			local pct = math.floor(v.pct + 0.5)
@@ -132,10 +147,10 @@ local function quota_cells(tool, profile)
 			if v.resets_at and v.resets_at < now then
 				text = "–"
 			end
-			table.insert(cells, { Foreground = { Color = palette.muted } })
-			table.insert(cells, { Text = " " .. w.label .. " " })
-			table.insert(cells, { Foreground = { Color = stale and palette.muted or pct_color(pct) } })
-			table.insert(cells, { Text = text })
+			table.insert(cells, { Text = " " })
+			for _, c in ipairs(chip(w.label .. " " .. text, (stale or text == "–") and palette.muted or pct_color(pct))) do
+				table.insert(cells, c)
+			end
 			local reset = text ~= "–" and reset_label(w.key, v.resets_at)
 			if reset then
 				table.insert(cells, { Foreground = { Color = palette.muted } })
@@ -151,8 +166,6 @@ local function append(dst, src)
 		table.insert(dst, c)
 	end
 end
-
-local SEP = { { Foreground = { Color = palette.muted } }, { Text = "  │  " } }
 
 -- 右側のステータス全体を組み立てる
 function M.right_status(window, pane)
@@ -175,28 +188,25 @@ function M.right_status(window, pane)
 		if is_active then
 			active_agent = item.agent
 		end
-		append(cells, {
-			{ Foreground = { Color = is_active and palette.accent_text or palette.fg } },
-			{ Attribute = { Intensity = is_active and "Bold" or "Normal" } },
-			{ Text = (CIRCLED[i] or tostring(i)) .. " " .. (item.agent.tool or "?") .. " " },
-			"ResetAttributes",
-			{ Text = (STATE_ICON[item.agent.state] or "·") .. "  " },
-		})
+		-- エージェントごとに装飾の色の札 (表示中のエージェントは太字)
+		append(cells, chip(
+			(CIRCLED[i] or tostring(i)) .. " " .. (item.agent.tool or "?") .. " " .. (STATE_ICON[item.agent.state] or "·"),
+			palette.deco_base[(i - 1) % #palette.deco_base + 1],
+			is_active
+		))
+		append(cells, { { Text = " " } })
 	end
 	if #list > 0 then
-		append(cells, SEP)
+		append(cells, { { Text = "  " } })
 	end
 
 	-- 選択中のエージェントのモデルとコンテキスト使用率
 	if active_agent and (active_agent.model or active_agent.ctx_pct) then
-		append(cells, { { Foreground = { Color = palette.fg } }, { Text = active_agent.model or "?" } })
+		append(cells, chip(active_agent.model or "?", palette.fg, true))
 		if active_agent.ctx_pct then
-			append(cells, {
-				{ Foreground = { Color = pct_color(active_agent.ctx_pct) } },
-				{ Text = " " .. active_agent.ctx_pct .. "%" },
-			})
+			append(cells, chip("ctx " .. active_agent.ctx_pct .. "%", pct_color(active_agent.ctx_pct)))
 		end
-		append(cells, SEP)
+		append(cells, { { Text = "   " } })
 	end
 
 	-- 利用制限 (今のタブのアカウント分)
@@ -205,7 +215,7 @@ function M.right_status(window, pane)
 	local codex = quota_cells("codex", profile)
 	append(cells, claude)
 	if #claude > 0 and #codex > 0 then
-		append(cells, SEP)
+		append(cells, { { Text = "   " } })
 	end
 	append(cells, codex)
 

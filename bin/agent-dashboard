@@ -40,7 +40,7 @@ DASHBOARD_TITLE = "◆ agents"
 ORDER = {"waiting": 0, "working": 1, "done": 2, "idle": 3}
 STATE_LABEL = {"waiting": "入力待ち", "working": "作業中", "done": "完了", "idle": "待機"}
 TOOL_LABEL = {"claude": "Claude", "codex": "Codex"}
-WEEKDAY = ["月", "火", "水", "木", "金", "土", "日"]
+WEEKDAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 REFRESH_SEC = 2
 BRANCH_TTL_SEC = 10
 CARD_MIN_W = 48
@@ -57,7 +57,13 @@ PALETTE_JSON = os.path.expanduser("~/.local/state/wezterm/palette.json")
 DEFAULT_COLORS = {
     "bg": "#EEEEEA", "card": "#FAFAF7", "fg": "#141414", "muted": "#6A6A64", "accent": "#FF4F00",
     "accent_fg": "#FFFFFF", "accent_text": "#D94300", "surface": "#DEDEDC", "selection": "#FFD8C2",
-    "ok": "#2D7A3E", "warn": "#B87400", "error": "#D62A1E",
+    "ok": "#2D7A3E", "warn": "#B87400", "error": "#D62A1E", "mode": "light",
+    # Decoration colors, used only by the dashboard tab (the agent column stays plain):
+    # decoN is a pale fill, inkN the strong color of the same hue for text on it
+    "deco1": "#DFA0BF", "deco2": "#E4A1AF", "deco3": "#E9B7A0", "deco4": "#D6C2A0", "deco5": "#A1C2BF",
+    "deco6": "#A0C3D1", "deco7": "#B0B3E6",
+    "ink1": "#6D153C", "ink2": "#741625", "ink3": "#7C3610", "ink4": "#604610", "ink5": "#15463D",
+    "ink6": "#134756", "ink7": "#2A3174",
 }
 PAL = dict(DEFAULT_COLORS)
 STATE_COLOR = {}
@@ -82,6 +88,40 @@ def refresh_palette():
 
 
 RESET = "\033[0m"
+
+
+def deco(i):
+    """The i-th decoration fill, a pale color (cycles through the scheme's hues)."""
+    return PAL[f"deco{i % 7 + 1}"]
+
+
+def ink(i):
+    """Text color for deco(i): the strong color of the same hue (never dark text on a dark fill)."""
+    return PAL[f"ink{i % 7 + 1}"]
+
+
+def tint(color):
+    """A pale fill of color, for chips (same mix as palette.lua)."""
+    return mix(color, PAL["bg"], 0.6 if PAL.get("mode") == "dark" else 0.65)
+
+
+def ink_of(color):
+    """Text color for a chip on tint(color) (same mix as palette.lua)."""
+    return mix(color, PAL["fg"], 0.35 if PAL.get("mode") == "dark" else 0.5)
+
+
+def mix(a, b, t):
+    ra, ga, ba = rgb(a)
+    rb, gb, bb = rgb(b)
+    return "#%02X%02X%02X" % (round(ra + (rb - ra) * t), round(ga + (gb - ga) * t), round(ba + (bb - ba) * t))
+
+
+def gradient(t):
+    """A color along all decoration hues, t in 0..1."""
+    stops = [PAL[f"deco{i}"] for i in range(1, 8)]
+    x = max(0.0, min(1.0, t)) * (len(stops) - 1)
+    i = min(int(x), len(stops) - 2)
+    return mix(stops[i], stops[i + 1], x - i)
 
 
 def rgb(hex_):
@@ -325,26 +365,28 @@ def env_state(env):
 # ---------------------------------------------------------------- widgets
 
 
-def card(w, title_line, body, selected=False):
+def card(w, title_line, body, selected=False, title_bg=None):
     """A card of width w: a filled panel (no ruled border) one step above the page background.
-    The selected card gets an accent edge on the left. title_line / body are Line objects (inner width w-4)."""
+    The selected card gets an accent edge on the left. title_line / body are Line objects (inner width w-4).
+    title_bg paints the title row in a color (the dashboard tab; the agent column leaves it plain)."""
     bg = PAL["card"]
     edge = ("▌", PAL["accent"]) if selected else (" ", None)
     inner = w - 4
     out = []
 
-    def row(line, bold_title=False):
-        r = Line().add(edge[0], fg=edge[1], bg=bg).add(" ", bg=bg)
-        fill = bg
+    def row(line, row_bg=None):
+        row_bg = row_bg or bg
+        r = Line().add(edge[0], fg=edge[1], bg=row_bg).add(" ", bg=row_bg)
+        fill = row_bg
         for text, fg, part_bg, bold in line.parts:
-            r.add(text, fg, part_bg or bg, bold)
+            r.add(text, fg, part_bg or row_bg, bold)
         if line.parts and getattr(line, "fill", False):
-            fill = line.parts[-1][2] or bg
+            fill = line.parts[-1][2] or row_bg
         r.pad_to(inner + 2, bg=fill)
-        r.add("  ", bg=bg)
+        r.add("  ", bg=row_bg)
         return r
 
-    out.append(row(title_line))
+    out.append(row(title_line, title_bg))
     for line in body:
         out.append(row(line))
     # Bottom padding row (keeps the same height as the old ruled card)
@@ -353,17 +395,23 @@ def card(w, title_line, body, selected=False):
 
 
 def meter(pct, n):
+    """Usage bar: each filled cell is colored by how far along it is (green -> yellow -> red)."""
     filled = max(0, min(n, round(pct / 100 * n)))
-    return Line().add("━" * filled, fg=pct_color(pct)).add("─" * (n - filled), fg=PAL["surface"])
+    line = Line()
+    for i in range(filled):
+        t = i / max(1, n - 1)
+        line.add("━", fg=mix(PAL["ok"], PAL["warn"], t * 2) if t < 0.5 else mix(PAL["warn"], PAL["error"], (t - 0.5) * 2))
+    return line.add("─" * (n - filled), fg=PAL["surface"])
 
 
 def quota_card(q, w):
     tool = TOOL_LABEL.get(q.get("tool"), q.get("tool", "?"))
-    title = Line().add(tool, fg=PAL["fg"], bold=True).add(f"  {q.get('profile', '')}", fg=PAL["muted"])
+    color = 2 if q.get("tool") == "claude" else 6
+    title = Line().add(tool, fg=ink(color), bold=True).add(f"  {q.get('profile', '')}", fg=ink(color))
     inner = w - 4
     body = []
     now = time.time()
-    for key, label in (("5h", "5時間"), ("week", "週間")):
+    for key, label in (("5h", "5h"), ("week", "w")):
         win = q["windows"].get(key)
         if not win or win.get("pct") is None:
             continue
@@ -383,7 +431,7 @@ def quota_card(q, w):
         if resets:
             sub.add(f"{reset_text(key, resets)}", fg=PAL["fg"]).add(f"   {until(resets)}", fg=PAL["muted"])
         body.append(sub)
-    return card(w, title, body)
+    return card(w, title, body, title_bg=deco(color))
 
 
 def agent_line(num, state, inner, selected):
@@ -393,11 +441,13 @@ def agent_line(num, state, inner, selected):
     tail = f"{ctx}%" if ctx is not None else ""
     line = Line()
     line.fill = selected
-    line.add(f" {num} ", fg=PAL["accent_fg"] if selected else PAL["muted"], bg=PAL["accent"] if selected else bg, bold=True)
+    line.add(f" {num} ", fg=ink(num - 1), bg=deco(num - 1), bold=True)
     line.add(" ", bg=bg)
     line.add(fit(TOOL_LABEL.get(state.get("tool"), state.get("tool", "?")), 8), fg=PAL["fg"], bg=bg, bold=True)
-    line.add("● ", fg=STATE_COLOR.get(st, PAL["muted"]), bg=bg)
-    line.add(fit(STATE_LABEL.get(st, "?"), 10), fg=STATE_COLOR.get(st, PAL["muted"]), bg=bg)
+    # The state as a colored chip
+    st_color = STATE_COLOR.get(st, PAL["muted"])
+    line.add(" " + fit(STATE_LABEL.get(st, "?"), 8) + " ", fg=ink_of(st_color), bg=tint(st_color), bold=True)
+    line.add(" ", bg=bg)
     rest = inner - line.w - 6 - 8
     line.add(fit(state.get("model") or "", max(0, rest)), fg=PAL["muted"], bg=bg)
     line.add(fit(tail, 6, "right"), fg=pct_color(ctx) if ctx is not None else PAL["muted"], bg=bg)
@@ -474,6 +524,21 @@ def build_items(envs, flat):
     return items
 
 
+def banner(text, n):
+    """One row of n columns, the background a gradient through the pale decoration hues, text on top."""
+    line = Line().add(" " * MARGIN)
+    col = 0
+    for c in fit(text, n):
+        line.add(c, fg=PAL["fg"], bg=gradient(col / max(1, n - 1)), bold=True)
+        col += cwidth(c)
+    return line
+
+
+def section(label, i):
+    """A section heading with a colored block in front."""
+    return Line().add(" " * MARGIN).add("▍", fg=deco(i)).add(f" {label}", fg=PAL["fg"], bold=True)
+
+
 def layout(workspace, envs, items, cursor, flat):
     cols_total, rows_total = shutil.get_terminal_size((120, 40))
     avail = cols_total - MARGIN * 2
@@ -483,24 +548,20 @@ def layout(workspace, envs, items, cursor, flat):
     # ---- header
     n_envs = sum(1 for e in envs if not e["is_dashboard"])
     all_states = [s.get("state") for e in envs for _, s in e["agents"]]
+    # A banner across the width, painted with a gradient through the scheme's hues
+    left = f"   ◆ {workspace or '?'}      作業環境 {n_envs}    エージェント {len(all_states)}"
+    right = "    ".join(f"{STATE_LABEL[st]} {all_states.count(st)}" for st in ("waiting", "working", "done"))
+    right += f"      {time.strftime('%H:%M:%S')}   "
+    text = left + " " * max(1, avail - width(left) - width(right)) + right
     scr.blank()
-    head = Line().add(" " * MARGIN).add(f"  ◆ {workspace or '?'}  ", fg=PAL["accent_fg"], bg=PAL["accent"], bold=True)
-    head.add(f"   作業環境 {n_envs}", fg=PAL["fg"]).add(f"   エージェント {len(all_states)}", fg=PAL["fg"])
-    summary = Line()
-    for st in ("waiting", "working", "done"):
-        summary.add("   ● ", fg=STATE_COLOR[st]).add(f"{STATE_LABEL[st]} {all_states.count(st)}", fg=PAL["fg"])
-    clock = f"   {time.strftime('%H:%M:%S')}"
-    head.add(" " * max(1, MARGIN + avail - head.w - summary.w - width(clock)))
-    for part in summary.parts:
-        head.add(*part)
-    head.add(clock, fg=PAL["muted"])
-    scr.put(head)
+    for row_text in (" " * avail, text, " " * avail):
+        scr.put(banner(row_text, avail))
     scr.blank()
 
     # ---- quotas
     qs = quotas()
     if qs:
-        scr.put(Line().add(" " * MARGIN).add("利用制限", fg=PAL["muted"], bold=True))
+        scr.put(section("利用制限", 2))
         qcols = max(1, min(len(qs), (avail + GAP) // (CARD_MIN_W + GAP)))
         qw = min(CARD_MAX_W, (avail - GAP * (qcols - 1)) // qcols)
         scr.put_cards([(quota_card(q, qw), qw) for q in qs], qcols)
@@ -509,7 +570,7 @@ def layout(workspace, envs, items, cursor, flat):
     # ---- environments / agents
     ncols = max(1, (avail + GAP) // (CARD_MIN_W + GAP))
     if flat:
-        scr.put(Line().add(" " * MARGIN).add("エージェント  ", fg=PAL["muted"], bold=True).add("入力待ちが先頭", fg=PAL["muted"]))
+        scr.put(section("エージェント", 0).add("  入力待ちが先頭", fg=PAL["muted"]))
         w = avail
         body, hit = [], []
         for idx, it in enumerate(items):
@@ -521,20 +582,22 @@ def layout(workspace, envs, items, cursor, flat):
             body.append(Line().add("エージェントは動いていません", fg=PAL["muted"]))
         scr.put_cards([(card(w, Line().add("全エージェント", fg=PAL["fg"], bold=True), body, True), w)], 1, [hit])
     else:
-        scr.put(Line().add(" " * MARGIN).add("作業環境", fg=PAL["muted"], bold=True))
+        scr.put(section("作業環境", 4))
         ncols = max(1, min(ncols, len(envs) or 1))
         w = min(CARD_MAX_W, (avail - GAP * (ncols - 1)) // ncols)
         cards, hits = [], []
-        for env in envs:
+        for env_index, env in enumerate(envs):
             env_items = [(i, it) for i, it in enumerate(items) if it["env"] is env]
             selected = current is not None and current["env"] is env
             st = env_state(env)
-            title = Line().add("● ", fg=STATE_COLOR.get(st, PAL["surface"]))
+            # Each environment card gets its own color for the title row
+            title = Line().add("● ", fg=ink(env_index))
             name = "一覧タブ" if env["is_dashboard"] else env["name"]
-            env_selected = selected and current["kind"] == "env"
-            title.add(fit(name, w - 12) if width(name) > w - 12 else name, fg=PAL["accent_text"] if env_selected else PAL["fg"], bold=True)
+            title.add(fit(name, w - 12) if width(name) > w - 12 else name, fg=ink(env_index), bold=True)
             if env["branch"]:
-                title.add("  \ue725 " + fit(env["branch"], max(1, w - 16 - title.w)) if width(env["branch"]) > w - 16 - title.w else "  \ue725 " + env["branch"], fg=PAL["ok"])
+                title.add("  \ue725 " + fit(env["branch"], max(1, w - 16 - title.w)) if width(env["branch"]) > w - 16 - title.w else "  \ue725 " + env["branch"], fg=ink(env_index))
+            if st:
+                title.add("   " + STATE_LABEL.get(st, ""), fg=ink(env_index))
             body = []
             sub = Line().add(short_path(env["path"]), fg=PAL["muted"])
             body.append(sub)
@@ -545,7 +608,7 @@ def layout(workspace, envs, items, cursor, flat):
                 body.append(agent_line(it["num"], it["state"], w - 4, i == cursor))
             if len(env_items) == 1:
                 body.append(Line().add("エージェントなし  ", fg=PAL["muted"]).add("LEADER c / x で起動", fg=PAL["muted"]))
-            cards.append((card(w, title, body, selected), w))
+            cards.append((card(w, title, body, selected, title_bg=deco(env_index)), w))
             hits.append(hit)
         if cards:
             scr.put_cards(cards, ncols, hits)
@@ -556,8 +619,8 @@ def layout(workspace, envs, items, cursor, flat):
     hints = [("↵", "開く"), ("j k", "移動"), ("h l", "カード"), ("1-9", "エージェントへ"),
              ("a", "カード表示" if flat else "エージェント一覧"), ("クリック", "開く")]
     foot = Line().add(" " * MARGIN)
-    for key, label in hints:
-        foot.add(f" {key} ", fg=PAL["fg"], bg=PAL["surface"], bold=True).add(f" {label}   ", fg=PAL["muted"])
+    for i, (key, label) in enumerate(hints):
+        foot.add(f" {key} ", fg=ink(i), bg=deco(i), bold=True).add(f" {label}   ", fg=PAL["muted"])
     while len(scr.lines) < rows_total - 2:
         scr.blank()
     scr.blank()
