@@ -27,6 +27,10 @@ return {
 	accent_fg = "#FFFFFF",
 	-- 非アクティブのタブなど、背景から少し浮かせたい面
 	surface = "#E6E6E6",
+	-- タブバー: アクティブなタブの札 / ホバーしたタブ / 非アクティブなタブの文字
+	accent_soft = "#D9E7FA",
+	hover = "#ECEEF3",
+	tab_fg = "#4A4A4A",
 	selection = "#ADD6FF",
 
 	-- 状態表示 (エージェントの状態、利用制限の残量)

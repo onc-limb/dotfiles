@@ -239,17 +239,21 @@ function M.git_info(path)
 	return info
 end
 
--- 左側のステータス: ワークスペース名 (ディレクトリとブランチはタブ名に出す)
+-- 左側のステータス: ワークスペース名の丸い札 (ディレクトリとブランチはタブ名に出す)
 function M.left_status(window)
-	local cells = {
+	local LEFT = wezterm.nerdfonts.ple_left_half_circle_thick
+	local RIGHT = wezterm.nerdfonts.ple_right_half_circle_thick
+	return wezterm.format({
+		{ Foreground = { Color = palette.accent } },
+		{ Text = " " .. LEFT },
 		{ Background = { Color = palette.accent } },
 		{ Foreground = { Color = palette.accent_fg } },
 		{ Attribute = { Intensity = "Bold" } },
-		{ Text = "  ◆ " .. window:active_workspace() .. "  " },
+		{ Text = "◆ " .. window:active_workspace() },
 		"ResetAttributes",
-	}
-	append(cells, { { Foreground = { Color = palette.muted } }, { Text = "  │ " } })
-	return wezterm.format(cells)
+		{ Foreground = { Color = palette.accent } },
+		{ Text = RIGHT .. "  " },
+	})
 end
 
 -- on_update: タブバーの更新 (毎秒) のついでに呼ぶ処理 (エージェント一覧タブの補充、セッションの保存)

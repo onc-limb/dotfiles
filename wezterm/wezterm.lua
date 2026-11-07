@@ -36,13 +36,6 @@ config.window_decorations = "RESIZE"
 config.show_tabs_in_tab_bar = true
 -- タブが一つの時は非表示
 config.hide_tab_bar_if_only_one_tab = false
--- falseにするとタブバーの透過が効かなくなる
-config.use_fancy_tab_bar = false
-
--- タブの追加ボタンを非表示
-config.show_new_tab_button_in_tab_bar = false
--- タブ名 (リポジトリ名  ブランチ) が切れないよう、既定の 16 文字より広くする
-config.tab_max_width = 40
 
 config.colors = {
 	foreground = palette.fg,
@@ -54,18 +47,8 @@ config.colors = {
 	selection_bg = palette.selection,
 	ansi = palette.ansi,
 	brights = palette.brights,
-	tab_bar = {
-		background = "none",
-		inactive_tab_edge = "none",
-	},
 }
--- タブの形をカスタマイズ
--- タブの左側の装飾
-local SOLID_LEFT_ARROW = wezterm.nerdfonts.ple_left_half_circle_thick
--- タブの右側の装飾
-local SOLID_RIGHT_ARROW = wezterm.nerdfonts.ple_right_half_circle_thick
-
--- 下のタブバー: 右側にエージェントの状態・モデルとコンテキスト・利用制限・ワークスペース名 (statusbar.lua)
+-- 下のタブバー: 左端にワークスペース名、右側にエージェントの状態・モデルとコンテキスト・利用制限 (statusbar.lua)
 -- 更新のついでに、ワークスペースにエージェント一覧タブがなければ作り (workspace.lua)、
 -- 構成が変わっていれば復旧用に保存する (session.lua)
 local workspace = require("workspace")
@@ -79,43 +62,8 @@ require("statusbar").setup(config, function(window)
 	session.save()
 end)
 
-wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
-	local background = palette.surface
-	local foreground = palette.fg
-	local edge_background = "none"
-	if tab.is_active then
-		background = palette.accent
-		foreground = palette.accent_fg
-	end
-	local edge_foreground = background
-	-- タブ名が明示的に設定されていればそれを優先 (LEADER+n の worktree タブ = worktree 名)。
-	-- 未設定ならアクティブペインのタイトル (Claude Code のセッション名など)
-	-- 作業環境のタブ (メインの nvim がある) は「リポジトリ名  ブランチ」。worktree でも元のリポジトリ名を出すので、
-	-- 同じリポジトリの worktree はブランチで見分けられる。git の外ならディレクトリ名 (LEADER+n / Cmd+t で付けたタブ名)。
-	-- それ以外 (エージェント一覧・素のシェル) は、タブ名が付いていればそれ、なければアクティブペインのタイトル
-	local name = tab.tab_title
-	local mux_tab = wezterm.mux.get_tab(tab.tab_id)
-	local main = mux_tab and workspace.find_role_pane(mux_tab, "main")
-	local git = main and require("statusbar").git_info(workspace.pane_cwd(main))
-	if git then
-		name = git.repo .. "  " .. wezterm.nerdfonts.dev_git_branch .. " " .. git.branch
-	elseif not name or name == "" then
-		name = tab.active_pane.title
-	end
-	-- 先頭に Cmd+数字 で選べる番号を付ける
-	local title = "  " .. (tab.tab_index + 1) .. " " .. wezterm.truncate_right(name, max_width - 6) .. "  "
-	return {
-		{ Background = { Color = edge_background } },
-		{ Foreground = { Color = edge_foreground } },
-		{ Text = SOLID_LEFT_ARROW },
-		{ Background = { Color = background } },
-		{ Foreground = { Color = foreground } },
-		{ Text = title },
-		{ Background = { Color = edge_background } },
-		{ Foreground = { Color = edge_foreground } },
-		{ Text = SOLID_RIGHT_ARROW },
-	}
-end)
+-- タブの見た目 (アクティブなタブは淡いアクセント色の丸い札、名前は リポジトリ名 と ブランチ) は tabs.lua
+require("tabs").setup(config)
 
 ----------------------------------------------------
 -- keybinds
