@@ -65,6 +65,10 @@ main() {
     create_link "$DOTFILES_DIR/karabiner" "$HOME/.config/karabiner"
     create_link "$DOTFILES_DIR/starship.toml" "$HOME/.config/starship.toml"
 
+    # F1-F12 を標準のファンクションキーとして扱う (Karabiner の Function keys タブの設定もこれを読む)
+    defaults write -g com.apple.keyboard.fnState -bool true
+    info "Set F1-F12 as standard function keys"
+
     # Zed configuration (~/.config/zed には prompts/ の LMDB が入るためファイル単位でリンク)
     create_link "$DOTFILES_DIR/zed/settings.json" "$HOME/.config/zed/settings.json"
     create_link "$DOTFILES_DIR/zed/keymap.json" "$HOME/.config/zed/keymap.json"
