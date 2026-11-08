@@ -38,7 +38,70 @@ local function write_json()
 	end
 end
 
+-- starship のプロンプト用: dotfiles の starship.toml (雛形) の palette を wezterm に差し替え、
+-- 今の配色から作った palettes.wezterm を足したものを書き出す (内容が変わったときだけ)。
+-- 札の地はタブバーと同じく、色を背景に寄せた淡い色 (tint)、文字は同じ色相の濃い色 (ink)
+M.starship_template = wezterm.home_dir .. "/.config/starship.toml"
+M.starship_path = STATE_DIR .. "/starship.toml"
+
+local function write_starship()
+	local f = io.open(M.starship_template, "r")
+	if not f then
+		return false
+	end
+	local template = f:read("*a")
+	f:close()
+	local p = palette
+	local colors = {
+		{ "path_bg", p.tint(p.ansi[5]) },
+		{ "path_ink", p.ink(p.ansi[5]) },
+		{ "path_dim", p.muted },
+		{ "branch_bg", p.tint(p.ansi[6]) },
+		{ "branch_ink", p.ink(p.ansi[6]) },
+		{ "chip_bg", p.surface },
+		{ "chip_ink", p.tab_fg },
+		{ "dim_ink", p.muted },
+		{ "ok_ink", p.ink(p.ok) },
+		{ "warn_bg", p.tint(p.warn) },
+		{ "warn_ink", p.ink(p.warn) },
+		{ "err_bg", p.tint(p.error) },
+		{ "err_ink", p.ink(p.error) },
+		{ "info_bg", p.tint(p.ansi[7]) },
+		{ "info_ink", p.ink(p.ansi[7]) },
+		{ "accent", p.accent_text },
+		{ "err", p.error },
+		{ "vim", p.ok },
+	}
+	local lines = { "", "# wezterm/theme.lua が今の配色 (" .. p.scheme .. " / " .. p.mode .. ") から書き出した色", "[palettes.wezterm]" }
+	for _, kv in ipairs(colors) do
+		table.insert(lines, string.format('%s = "%s"', kv[1], kv[2]))
+	end
+	local text = template:gsub('palette = "fallback"', 'palette = "wezterm"', 1) .. table.concat(lines, "\n") .. "\n"
+	f = io.open(M.starship_path, "r")
+	if f then
+		local old = f:read("*a")
+		f:close()
+		if old == text then
+			return true
+		end
+	end
+	os.execute("mkdir -p '" .. STATE_DIR .. "'")
+	f = io.open(M.starship_path, "w")
+	if not f then
+		return false
+	end
+	f:write(text)
+	f:close()
+	return true
+end
+
 function M.setup(config)
+	-- 雛形を書き換えたときも設定を読み直し、書き出し直す
+	wezterm.add_to_config_reload_watch_list(M.starship_template)
+	if write_starship() then
+		config.set_environment_variables = config.set_environment_variables or {}
+		config.set_environment_variables.STARSHIP_CONFIG = M.starship_path
+	end
 	config.window_background_opacity = 1.0
 	config.macos_window_background_blur = 0
 	-- 文字が窓の縁に張り付かないよう、アプリらしく余白を取り、行間も少し広げる。
