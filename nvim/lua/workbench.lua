@@ -6,6 +6,8 @@
 -- - ターミナルは nvim の中のターミナルバッファ。エージェント (Claude Code / Codex) は nvim の外の
 --   WezTerm のペインで動かす (wezterm/workspace.lua。nvim の中だと nvim のキーが効かず、監視もしにくい)
 -- - WezTerm のキー (Cmd+e / Cmd+j / LEADER t など) は nvim --server <ソケット> --remote-expr で M.rpc を呼ぶ
+-- - 真ん中にファイル (かターミナル) が出ているかを user var workbench_layout (edit / tree) で WezTerm に知らせる。
+--   WezTerm は右のエージェントのペインの幅をそれに合わせる (ファイルがなければツリーだけ残してエージェントを広げる)
 local M = {}
 
 local last_file_buf = nil
@@ -170,13 +172,8 @@ end
 -- 起動
 ----------------------------------------------------
 
--- 作業環境の nvim の起動時 (VimEnter) に呼ぶ。restored = 前回のファイルを開き直せたか。
--- ターミナルを 1 つ用意する (ファイルがなければそれを表示する)
-function M.start(restored)
-	M.open({ background = restored })
-	if restored then
-		vim.cmd("stopinsert")
-	end
+-- 作業環境の nvim の起動時 (VimEnter) に呼ぶ。ターミナルは開かない (Cmd+j / LEADER t で開く)
+function M.start()
 	-- 起動直後の空のバッファ ([No Name]) がタブに残らないよう消す
 	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
 		if
@@ -189,6 +186,7 @@ function M.start(restored)
 			pcall(vim.api.nvim_buf_delete, buf, {})
 		end
 	end
+	M.update_layout()
 end
 
 -- WezTerm のシェルから nvim / v (nvim .) で開いたときも、作業環境と同じ画面 (ツリー + 真ん中) にする。
@@ -200,9 +198,43 @@ end
 -- 終了したら role を戻す
 local SOCKET_DIR = vim.fn.expand("~/.local/state/nvim/workbench")
 
+-- OSC 1337 SetUserVar を端末に送る (WezTerm の user var)
+local function set_var(name, value)
+	pcall(vim.fn.chansend, vim.v.stderr, "\27]1337;SetUserVar=" .. name .. "=" .. vim.base64.encode(value) .. "\7")
+end
+
 local function set_role(value)
-	-- OSC 1337 SetUserVar を端末に送る (WezTerm の user var)
-	pcall(vim.fn.chansend, vim.v.stderr, "\27]1337;SetUserVar=role=" .. vim.base64.encode(value) .. "\7")
+	set_var("role", value)
+end
+
+----------------------------------------------------
+-- 画面の割り当て (WezTerm に知らせる)
+----------------------------------------------------
+
+-- ツリー以外の普通のウィンドウに、ファイル・ターミナルなど中身のあるものが出ているか
+local function has_content()
+	for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+		if vim.api.nvim_win_get_config(win).relative == "" then
+			local buf = vim.api.nvim_win_get_buf(win)
+			if
+				vim.bo[buf].filetype ~= "neo-tree"
+				and (vim.bo[buf].buftype ~= "" or vim.api.nvim_buf_get_name(buf) ~= "" or vim.bo[buf].modified)
+			then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local layout_sent = nil
+-- workbench_layout を edit (ファイルを開いている) / tree (ツリーだけ) にする。変わったときだけ送る
+function M.update_layout()
+	local layout = has_content() and "edit" or "tree"
+	if layout ~= layout_sent then
+		layout_sent = layout
+		set_var("workbench_layout", layout)
+	end
 end
 
 function M.from_shell()
@@ -242,6 +274,19 @@ end
 
 function M.setup()
 	local group = vim.api.nvim_create_augroup("workbench", { clear = true })
+	-- ファイルを開いた・閉じた・ウィンドウが増減したら、WezTerm に画面の割り当てを知らせる
+	vim.api.nvim_create_autocmd({ "BufWinEnter", "BufDelete", "WinNew", "WinClosed", "TabEnter", "TermOpen" }, {
+		group = group,
+		callback = function()
+			vim.schedule(M.update_layout)
+		end,
+	})
+	vim.api.nvim_create_autocmd("VimLeavePre", {
+		group = group,
+		callback = function()
+			set_var("workbench_layout", "")
+		end,
+	})
 	vim.api.nvim_create_autocmd("BufEnter", {
 		group = group,
 		callback = function(ev)

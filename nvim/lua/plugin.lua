@@ -330,11 +330,10 @@ return {
 					end
 					if vim.fn.argc() == 0 and vim.api.nvim_buf_get_name(0) == "" then
 						if vim.g.start_with_explorer == 1 then
-							-- ツリーは表示だけして、フォーカスは真ん中に置く。
-							-- ターミナルを 1 つ用意し、前回のファイルを開き直せなければターミナルを表示する
-							local restored = worktree_session.restore()
+							-- ツリーは表示だけして、フォーカスは真ん中に置く。前回のファイルがあれば開き直す
+							worktree_session.restore()
 							vim.cmd("Neotree show left")
-							workbench.start(restored)
+							workbench.start()
 						else
 							require("oil").open()
 						end
