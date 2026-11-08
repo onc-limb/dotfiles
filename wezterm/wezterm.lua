@@ -70,9 +70,19 @@ require("statusbar").setup(config, function(window)
 	end
 	require("tabs").refresh_git(window)
 	workspace.ensure_dashboard(window)
-	workspace.ensure_sidebars(window)
+	workspace.ensure_agent_shown(window)
 	workspace.cleanup_agents()
 	session.save()
+end)
+
+-- 作業環境の nvim がファイルを開いた / 閉じたら (user var workbench_layout)、すぐに右のエージェントの幅を合わせる
+wezterm.on("user-var-changed", function(_, pane, name)
+	if name == "workbench_layout" then
+		local tab = pane:tab()
+		if tab then
+			workspace.apply_layout(tab)
+		end
+	end
 end)
 
 -- タブの見た目 (紫系統の一系統: アクティブなタブはその色の札、名前は リポジトリ名 と ブランチ) は tabs.lua

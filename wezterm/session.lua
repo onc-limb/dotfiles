@@ -103,7 +103,7 @@ local function clear_agent_states()
 		return
 	end
 	for _, path in ipairs(paths) do
-		if path:match("/%d+%.json$") or path:match("/shown%-%d+$") then
+		if path:match("/%d+%.json$") or path:match("/shown%-%d+$") or path:match("/hidden%-%d+$") then
 			os.remove(path)
 		end
 	end
@@ -113,17 +113,13 @@ local function exists(path)
 	return path and wezterm.run_child_process({ "test", "-d", path })
 end
 
--- home: エージェントが所属するペイン (作業環境のメインの nvim など)
-local function restore_agents(tab, home, list, cwd)
-	local any = false
+-- home: エージェントが所属するペイン (作業環境のメインの nvim など)。
+-- エージェントは見えないワークスペースで再開し、タブを開いたときに右に出る (workspace.ensure_agent_shown)
+local function restore_agents(home, list, cwd)
 	for _, a in ipairs(list or {}) do
 		if a.tool then
 			workspace.spawn_agent(home, a.tool, a.session_id, a.cwd or cwd)
-			any = true
 		end
-	end
-	if any then
-		workspace.ensure_sidebar(tab, home)
 	end
 end
 
@@ -139,7 +135,7 @@ local function restore(data)
 		local env_tabs = 0
 		for _, entry in ipairs(ws.tabs) do
 			if entry.kind == "dashboard" then
-				restore_agents(dashboard_tab, dashboard_pane, entry.agents, wezterm.home_dir)
+				restore_agents(dashboard_pane, entry.agents, wezterm.home_dir)
 			elseif exists(entry.cwd) then
 				local tab, home
 				if entry.kind == "worktree" then
@@ -147,7 +143,7 @@ local function restore(data)
 				else
 					tab, home = window:spawn_tab({ cwd = entry.cwd })
 				end
-				restore_agents(tab, home, entry.agents, entry.cwd)
+				restore_agents(home, entry.agents, entry.cwd)
 				if entry.title and entry.title ~= "" then
 					tab:set_title(entry.title)
 				end

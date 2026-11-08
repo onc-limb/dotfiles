@@ -2,12 +2,15 @@
 --
 -- 各 worktree タブ:
 --   左 (main)     : メインの nvim (neo-tree 常駐、ファイルとターミナル)。nvim を抜けても zsh が残る
---   右 (sidebar)  : そのタブのエージェントの状態カード (bin/agent-dashboard --sidebar)。エージェントがいる間だけ
---   エージェント  : 普段は見えないワークスペース (STASH) で動かし、見るときだけタブに移して全画面にする (bin/agent-view)
+--   右 (agent)    : そのタブのエージェント 1 つ (そのまま操作できる)。ほかのエージェントは見えないワークスペース (STASH)
+--                   で待たせ、Cmd+a / LEADER 数字で入れ替える (bin/agent-view)。LEADER z で隠す / 出す
+--   幅            : nvim がファイルを開いていればエージェントは右に寄せ (全体の 30%)、ファイルがなければ
+--                   nvim をツリーの幅まで縮めてエージェントを広げる (nvim が user var workbench_layout で知らせる)。
+--                   Cmd+Shift+a で、ファイルを開いていてもエージェントを広げる (ツリーを見ながら指示を出す) / 戻す
 -- ワークスペースごとに閉じられないエージェント一覧タブ (dashboard) を 1 つ置く。
 --
 -- ペインの役割は、ペインの中のシェルが OSC 1337 SetUserVar で書き込む user var で見分ける
---   role = main / agent / sidebar / dashboard、tool = claude / codex
+--   role = main / agent / dashboard、tool = claude / codex
 -- エージェントがどのタブのものかは、状態ファイルの home (所属するペイン) で決める (statusbar.agents_in_tab)
 -- (Lua 側のテーブルと違い、設定の自動リロードで消えない)
 local wezterm = require("wezterm")
@@ -22,8 +25,12 @@ local SOCKET_DIR = wezterm.home_dir .. "/.local/state/nvim/workbench"
 M.DASHBOARD_TITLE = "◆ agents"
 -- エージェントを置いておく見えないワークスペース (bin/agent-view と同じ名前)
 M.STASH = "_agents"
--- 右側の状態カードの幅 (セル数)
-local SIDEBAR_COLS = 34
+-- nvim がファイルを開いていないとき (workbench_layout = tree) の nvim の幅: neo-tree (32) と区切り線
+local TREE_COLS = 34
+-- ファイルを開いているときのエージェントの幅: 全体に対する割合と最小のセル数。nvim にも最低限の幅を残す
+local AGENT_RATIO = 0.3
+local AGENT_MIN_COLS = 40
+local MAIN_MIN_COLS = 60
 
 -- 新しく作ったペイン・タブを知らせるコールバック (session.lua が保存のきっかけに使う)
 M.on_change = function() end
@@ -190,42 +197,9 @@ function M.spawn_agent(home, tool, session_id, cwd)
 	return pane
 end
 
--- 右側の状態カードのペイン (エージェント一覧タブには作らない)。
--- 作った直後は user var が届いていないので、作ったペインを覚えておく
-local sidebars = {}
-function M.ensure_sidebar(tab, home)
-	if role_of(home) == "dashboard" or tab:get_title() == M.DASHBOARD_TITLE then
-		return
-	end
-	for _, p in ipairs(tab:panes()) do
-		if role_of(p) == "sidebar" or sidebars[tab:tab_id()] == p:pane_id() then
-			return
-		end
-	end
-	local args = M.zsh(set_var_cmd("role", "sidebar") .. "; exec " .. BIN .. "/agent-dashboard --sidebar", wezterm.home_dir)
-	local pane = home:split({ direction = "Right", size = SIDEBAR_COLS, top_level = true, args = args })
-	sidebars[tab:tab_id()] = pane:pane_id()
-end
-
--- エージェントのいるタブに状態カードがなければ作る (update-status から毎秒呼ばれる。
--- 復旧したタブや、カードのペインを閉じてしまったとき用)
--- (ペインで直接動かしているエージェント (home なし) だけのタブには作らない)
-function M.ensure_sidebars(window)
-	local tab = window:active_tab()
-	if not tab then
-		return
-	end
-	for _, item in ipairs(statusbar.agents_in_tab(tab)) do
-		if item.agent.home then
-			M.ensure_sidebar(tab, M.home_pane(tab))
-			return
-		end
-	end
-end
-
--- bin/agent-view show / hide を呼ぶ (エージェントをタブに出して全画面にする / 見えないワークスペースに戻す)
-local function agent_view(cmd, pane_id)
-	wezterm.run_child_process({ BIN .. "/agent-view", cmd, tostring(pane_id) })
+-- bin/agent-view show / hide を呼ぶ (エージェントをタブの右に出す / 見えないワークスペースに戻す)
+local function agent_view(cmd, pane_id, ...)
+	wezterm.run_child_process({ BIN .. "/agent-view", cmd, tostring(pane_id), ... })
 end
 
 -- タブに出ているエージェントを見えないワークスペースに戻す
@@ -239,6 +213,116 @@ local function hide_agents(tab)
 			agent_view("hide", item.pane:pane_id())
 		end
 	end
+end
+
+local function state_file(name, home)
+	return string.format("%s/%s-%d", statusbar.state_dir, name, home:pane_id())
+end
+
+-- 最後に表示したエージェントのペイン ID (bin/agent-view が shown-<home> に書く)
+local function last_shown(home)
+	local f = io.open(state_file("shown", home), "r")
+	if not f then
+		return nil
+	end
+	local id = tonumber(f:read("*l") or "")
+	f:close()
+	return id
+end
+
+-- Cmd+Shift+a でエージェントを広げたタブ (タブ ID -> true)。設定を読み直しても消えないよう GLOBAL に置く
+local function wide_tabs()
+	wezterm.GLOBAL.agent_wide = wezterm.GLOBAL.agent_wide or {}
+	return wezterm.GLOBAL.agent_wide
+end
+
+local function is_wide(tab)
+	return wide_tabs()[tostring(tab:tab_id())] == true
+end
+
+-- nvim とエージェントの幅を、nvim が知らせる workbench_layout と Cmd+Shift+a の切り替えに合わせる。
+-- 合わせたあとに手で幅を変えても戻さないよう、(layout, Cmd+Shift+a の切り替え, エージェント, 全体の幅) が変わったときだけ合わせる
+local applied = {}
+function M.apply_layout(tab)
+	local infos = tab:panes_with_info()
+	if #infos ~= 2 then
+		return
+	end
+	local main, agent
+	for _, info in ipairs(infos) do
+		local role = role_of(info.pane)
+		if role == "main" then
+			main = info
+		elseif role == "agent" then
+			agent = info
+		end
+	end
+	if not (main and agent) or agent.left <= main.left or agent.top ~= main.top then
+		return
+	end
+	local total = main.width + agent.width + 1
+	local layout = main.pane:get_user_vars().workbench_layout or ""
+	local wide = is_wide(tab)
+	local key = string.format("%s:%s:%d:%d", layout, tostring(wide), agent.pane:pane_id(), total)
+	if applied[tab:tab_id()] == key then
+		return
+	end
+	applied[tab:tab_id()] = key
+	local target
+	if layout == "tree" or wide then
+		target = TREE_COLS
+	else
+		target = math.max(MAIN_MIN_COLS, total - 1 - math.max(AGENT_MIN_COLS, math.floor(total * AGENT_RATIO)))
+	end
+	-- 狭いウィンドウでもエージェントに 20 セルは残す
+	target = math.max(1, math.min(target, total - 1 - 20))
+	local delta = main.width - target
+	if delta ~= 0 then
+		wezterm.run_child_process({
+			wezterm.executable_dir .. "/wezterm", "cli", "adjust-pane-size",
+			"--pane-id", tostring(main.pane:pane_id()), "--amount", tostring(math.abs(delta)), delta > 0 and "Left" or "Right",
+		})
+	end
+end
+
+-- 作業環境のタブにエージェントがいるのに右に出ていなければ、最後に表示したもの (なければ 1 つ目) を
+-- フォーカスを移さずに出し、幅を合わせる (update-status から毎秒呼ばれる。復旧したタブ・エージェント一覧から
+-- 起動したエージェント・表示中のエージェントが終了したとき用)。LEADER z で隠したタブには出さない
+function M.ensure_agent_shown(window)
+	local tab = window:active_tab()
+	local main = tab and M.find_role_pane(tab, "main")
+	if not main then
+		return
+	end
+	local in_tab = {}
+	for _, p in ipairs(tab:panes()) do
+		in_tab[p:pane_id()] = true
+	end
+	local mine = {}
+	for _, item in ipairs(statusbar.agents_in_tab(tab)) do
+		if in_tab[item.pane:pane_id()] then
+			M.apply_layout(tab)
+			return
+		end
+		if item.agent.home == main:pane_id() then
+			table.insert(mine, item)
+		end
+	end
+	if #mine == 0 then
+		return
+	end
+	local hidden = io.open(state_file("hidden", main), "r")
+	if hidden then
+		hidden:close()
+		return
+	end
+	local target, last = mine[1], last_shown(main)
+	for _, item in ipairs(mine) do
+		if item.pane:pane_id() == last then
+			target = item
+		end
+	end
+	agent_view("show", target.pane:pane_id(), "--no-focus")
 end
 
 -- 所属するペインが無くなった (タブを閉じた) エージェントを止め、終了したエージェントの状態ファイルを消す。
@@ -423,7 +507,7 @@ function M.nvim_call(main_pane, name, ...)
 	return ok
 end
 
--- 作業環境のタブなら、(出ているエージェントを戻して) メインの nvim のペインに移ってから name を呼ぶ。
+-- 作業環境のタブなら、メインの nvim のペインに移ってから name を呼ぶ (右のエージェントはそのまま)。
 -- 作業環境でなければ false
 local function in_workbench(window, pane, name, ...)
 	local tab = window:active_tab()
@@ -431,19 +515,17 @@ local function in_workbench(window, pane, name, ...)
 	if not main then
 		return false
 	end
-	hide_agents(tab)
 	main:activate()
 	M.nvim_call(main, name, ...)
 	return true
 end
 
--- LEADER+c / LEADER+x: エージェントを起動して全画面で表示する。右側に状態カードが出る
+-- LEADER+c / LEADER+x: エージェントを起動して右に出し、フォーカスを移す
 function M.launch_agent(tool)
 	return wezterm.action_callback(function(window, pane)
 		local tab = window:active_tab()
 		local home = M.home_pane(tab, pane)
 		local agent = M.spawn_agent(home, tool)
-		M.ensure_sidebar(tab, home)
 		agent_view("show", agent:pane_id())
 	end)
 end
@@ -469,38 +551,41 @@ function M.cycle_center(step)
 	end)
 end
 
--- Cmd+e: ファイル (メインの nvim の編集画面) へ。エージェントを見ていたら戻す
+-- Cmd+e: ファイル (メインの nvim の編集画面) へ。右のエージェントはそのまま
 function M.focus_main()
 	return wezterm.action_callback(function(window, pane)
-		if not in_workbench(window, pane, "editor") then
-			hide_agents(window:active_tab())
-		end
+		in_workbench(window, pane, "editor")
 	end)
 end
 
--- 今見ているエージェント (アクティブなペインがタブのエージェントなら、その番号)
-local function current_index(agents, pane)
+-- タブに出ているエージェントの番号 (出ていなければ nil)
+local function shown_index(tab, agents)
+	local in_tab = {}
+	for _, p in ipairs(tab:panes()) do
+		in_tab[p:pane_id()] = true
+	end
 	for i, item in ipairs(agents) do
-		if item.pane:pane_id() == pane:pane_id() then
+		if in_tab[item.pane:pane_id()] then
 			return i
 		end
 	end
 	return nil
 end
 
--- Cmd+a: 次のエージェントを表示する
+-- Cmd+a: 右に次のエージェントを出す
 function M.cycle_agent()
-	return wezterm.action_callback(function(window, pane)
-		local agents = statusbar.agents_in_tab(window:active_tab())
+	return wezterm.action_callback(function(window)
+		local tab = window:active_tab()
+		local agents = statusbar.agents_in_tab(tab)
 		if #agents == 0 then
 			return
 		end
-		local i = current_index(agents, pane)
+		local i = shown_index(tab, agents)
 		agent_view("show", agents[i and (i % #agents + 1) or 1].pane:pane_id())
 	end)
 end
 
--- LEADER+数字: n 番目のエージェントを表示する (右側のカード・タブバーの ① ② と同じ番号)
+-- LEADER+数字: 右に n 番目のエージェントを出す (タブバーの ① ② と同じ番号)
 function M.focus_agent(n)
 	return wezterm.action_callback(function(window)
 		local item = statusbar.agents_in_tab(window:active_tab())[n]
@@ -510,7 +595,33 @@ function M.focus_agent(n)
 	end)
 end
 
--- LEADER+z: エージェントを見ていれば戻し、見ていなければ最後に見たエージェントを表示する。
+-- Cmd+Shift+a: ファイルを開いていても、ツリーだけ残してエージェントを広げる / 戻す (タブごと)。
+-- エージェントが隠れていれば出す
+function M.toggle_agent_wide()
+	return wezterm.action_callback(function(window, pane)
+		local tab = window:active_tab()
+		if not M.find_role_pane(tab, "main") then
+			return
+		end
+		local id = tostring(tab:tab_id())
+		local tabs = wide_tabs()
+		tabs[id] = not tabs[id] or nil
+		wezterm.GLOBAL.agent_wide = tabs
+		local agents = statusbar.agents_in_tab(tab)
+		if #agents > 0 and not shown_index(tab, agents) then
+			local target, last = agents[1], last_shown(M.home_pane(tab, pane))
+			for _, item in ipairs(agents) do
+				if item.pane:pane_id() == last then
+					target = item
+				end
+			end
+			agent_view("show", target.pane:pane_id(), "--no-focus")
+		end
+		M.apply_layout(tab)
+	end)
+end
+
+-- LEADER+z: 右のエージェントを隠す / 最後に見たエージェントを出す (隠している間は自動で出さない)。
 -- エージェントのいないタブでは、ふつうのペインの拡大・縮小
 function M.toggle_agent()
 	return wezterm.action_callback(function(window, pane)
@@ -520,19 +631,14 @@ function M.toggle_agent()
 			window:perform_action(act.TogglePaneZoomState, pane)
 			return
 		end
-		if current_index(agents, pane) then
+		if shown_index(tab, agents) then
 			hide_agents(tab)
 			return
 		end
-		local target = agents[1]
-		local f = io.open(string.format("%s/shown-%d", statusbar.state_dir, M.home_pane(tab, pane):pane_id()), "r")
-		if f then
-			local last = tonumber(f:read("*l") or "")
-			f:close()
-			for _, item in ipairs(agents) do
-				if item.pane:pane_id() == last then
-					target = item
-				end
+		local target, last = agents[1], last_shown(M.home_pane(tab, pane))
+		for _, item in ipairs(agents) do
+			if item.pane:pane_id() == last then
+				target = item
 			end
 		end
 		agent_view("show", target.pane:pane_id())

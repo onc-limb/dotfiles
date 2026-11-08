@@ -104,7 +104,7 @@ return {
 		{ key = "d", mods = "LEADER", action = act.SplitVertical({ domain = "CurrentPaneDomain" }) },
 		{ key = "r", mods = "LEADER", action = act.SplitHorizontal({ domain = "CurrentPaneDomain" }) },
 		-- メインの nvim / エージェントへ。Cmd+文字はターミナルへ届かないので prefix 不要
-		-- Cmd+e: ファイル (エージェントを見ていたら戻す) / Cmd+a: エージェントを全画面で表示 (押すたびに次のエージェントへ)
+		-- Cmd+e: ファイル (右のエージェントはそのまま) / Cmd+a: 右のエージェントを次のエージェントに入れ替える
 		{ key = "e", mods = "SUPER", action = workspace.focus_main() },
 		-- 作業環境の真ん中: Cmd+j でターミナルとファイルを行き来、Cmd+[ / Cmd+] で左右のタブへ、LEADER+t で新しいターミナル
 		{ key = "j", mods = "SUPER", action = workspace.toggle_terminal() },
@@ -112,10 +112,12 @@ return {
 		{ key = "]", mods = "SUPER", action = workspace.cycle_center(1) },
 		{ key = "t", mods = "LEADER", action = workspace.new_terminal() },
 		{ key = "a", mods = "SUPER", action = workspace.cycle_agent() },
+		-- Cmd+Shift+a: ファイルを開いていても右のエージェントを広げる (ツリーだけ残す) / 戻す
+		{ key = "A", mods = "SUPER|SHIFT", action = workspace.toggle_agent_wide() },
 		{ key = "e", mods = "LEADER", action = workspace.focus_main() },
 		-- エージェント一覧タブへ
 		{ key = "0", mods = "SUPER", action = workspace.focus_dashboard() },
-		-- エージェントを起動して全画面で表示 (右側に状態カードが出る)。leader + c: Claude Code / leader + x: Codex
+		-- エージェントを起動して右に出す。leader + c: Claude Code / leader + x: Codex
 		{ key = "c", mods = "LEADER", action = workspace.launch_agent("claude") },
 		{ key = "x", mods = "LEADER", action = workspace.launch_agent("codex") },
 		-- Claude Code のトランスクリプトモード切替。入力ソースを英数にしてから Ctrl+O を送る
