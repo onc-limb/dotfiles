@@ -106,28 +106,27 @@ local function reset_label(key, ts)
 end
 
 -- 利用制限 1 ツール分: 例 "C 5h 32% 14:30 w 18% Wed 18:00"
--- 色の札。右側のステータスを派手にするため。color の淡い地に、同じ色相の濃い文字で描く (濃い地に文字を載せない)
-local function chip(text, color, bold)
+-- 色の札。color の淡い地に、同じ色相の濃い文字で描く。
+-- solid なら color をそのまま地にし、タブの色の上の文字の色 (tab_accent_fg) で描く (タブの色の札だけに使う)
+local function chip(text, color, bold, solid)
 	return {
-		{ Background = { Color = palette.tint(color) } },
-		{ Foreground = { Color = palette.ink(color) } },
+		{ Background = { Color = solid and color or palette.tint(color) } },
+		{ Foreground = { Color = solid and palette.tab_accent_fg or palette.ink(color) } },
 		{ Attribute = { Intensity = bold and "Bold" or "Normal" } },
 		{ Text = " " .. text .. " " },
 		"ResetAttributes",
 	}
 end
 
--- 使用率の札の色: 余裕があれば緑、60% 以上で黄、80% 以上で赤
+-- 使用率の札の色: 余裕があればグレー (目立たせない)、60% 以上で黄、80% 以上で赤
 local function pct_color(pct)
 	if pct >= 80 then
 		return palette.error
 	elseif pct >= 60 then
 		return palette.warn
 	end
-	return palette.ok
+	return palette.fg
 end
-
-local QUOTA_COLOR = { claude = 3, codex = 7 }
 
 local function quota_cells(tool, profile)
 	local data = read_json(string.format("%s/quota-%s-%s.json", M.state_dir, tool, profile))
@@ -137,7 +136,7 @@ local function quota_cells(tool, profile)
 	local now = os.time()
 	local stale = (now - (data.updated_at or 0)) > QUOTA_STALE_SEC
 	-- 例: [C] [5h 32%] 14:30  [w 18%] Wed 18:00
-	local cells = chip(TOOL_LABEL[tool] or tool, palette.deco_base[QUOTA_COLOR[tool] or 1], true)
+	local cells = chip(TOOL_LABEL[tool] or tool, palette.tab_accent, true)
 	for _, w in ipairs({ { key = "5h", label = "5h" }, { key = "week", label = "w" } }) do
 		local v = data.windows[w.key]
 		if v and v.pct then
@@ -178,7 +177,7 @@ function M.right_status(window, pane)
 	local key_table = window:active_key_table()
 	local mode = key_table and ("TABLE: " .. key_table) or (window:leader_is_active() and "LEADER" or nil)
 	if mode then
-		append(cells, { { Foreground = { Color = palette.accent_text } }, { Text = mode .. "  " } })
+		append(cells, { { Foreground = { Color = palette.tab_accent } }, { Text = mode .. "  " } })
 	end
 
 	-- 今のタブのエージェント: ① claude ⏳  ② codex 💬
@@ -188,10 +187,11 @@ function M.right_status(window, pane)
 		if is_active then
 			active_agent = item.agent
 		end
-		-- エージェントごとに装飾の色の札 (表示中のエージェントは太字)
+		-- エージェントの札はタブの色の一系統: 表示中のエージェントはその色を地にした太字の札、ほかは淡い札
 		append(cells, chip(
 			(CIRCLED[i] or tostring(i)) .. " " .. (item.agent.tool or "?") .. " " .. (STATE_ICON[item.agent.state] or "·"),
-			palette.deco_base[(i - 1) % #palette.deco_base + 1],
+			palette.tab_accent,
+			is_active,
 			is_active
 		))
 		append(cells, { { Text = " " } })

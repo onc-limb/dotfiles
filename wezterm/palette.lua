@@ -23,6 +23,7 @@ M.default_mode = "light"
 -- 各モードの色:
 --   bg 本文 / chrome 沈んだ面 (タブバー・ツリー) / card 浮いた面 (カード) / fg 文字 / muted 補助の文字 /
 --   accent 差し色 / accent_fg 差し色の上の文字 / accent_text 文字に使う差し色 (省略時は accent) /
+--   tab タブバーの札の色 (紫系統。省略時は accent) /
 --   border 区切り線 / sel 選択範囲 / ok warn err 状態 /
 --   kw str fn num com 構文 (キーワード・文字列・関数・数値・コメント) / blue magenta cyan ANSI の残りの色
 M.order = { "instrument", "aviation", "thermal" }
@@ -32,20 +33,20 @@ M.schemes = {
 		label = "Instrument  計測器 (グレーの筐体に安全色のオレンジ)",
 		-- 本文のフォント (nvim もこのフォントで描かれる)。weight はライト / ダークで変える (下の build を参照)
 		font = { family = "SF Mono", light = "Medium", dark = "Regular" },
-		light = { bg = "#EEEEEA", chrome = "#DADAD4", card = "#FAFAF7", fg = "#141414", muted = "#6A6A64", accent = "#FF4F00", accent_fg = "#FFFFFF", accent_text = "#D94300", border = "#C7C7C0", sel = "#FFD8C2", ok = "#2D7A3E", warn = "#B87400", err = "#D62A1E", kw = "#0B57D0", str = "#2D7A3E", fn = "#D9480F", num = "#7A3EC8", com = "#8A8A84", blue = "#0B57D0", magenta = "#7A3EC8", cyan = "#0F7C8C" },
-		dark = { bg = "#161718", chrome = "#0E0F10", card = "#202123", fg = "#EDEDE8", muted = "#8C8C86", accent = "#FF6A1A", accent_fg = "#111111", border = "#2C2D2F", sel = "#4A2A18", ok = "#5FD38A", warn = "#FFB224", err = "#FF5A4E", kw = "#7AA7FF", str = "#8BD69B", fn = "#FF8A4C", num = "#C9A2FF", com = "#6E6E6A", blue = "#7AA7FF", magenta = "#C9A2FF", cyan = "#5CC8D6" },
+		light = { tab = "#7A3EC8", bg = "#EEEEEA", chrome = "#DADAD4", card = "#FAFAF7", fg = "#141414", muted = "#6A6A64", accent = "#FF4F00", accent_fg = "#FFFFFF", accent_text = "#D94300", border = "#C7C7C0", sel = "#FFD8C2", ok = "#2D7A3E", warn = "#B87400", err = "#D62A1E", kw = "#0B57D0", str = "#2D7A3E", fn = "#D9480F", num = "#7A3EC8", com = "#8A8A84", blue = "#0B57D0", magenta = "#7A3EC8", cyan = "#0F7C8C" },
+		dark = { tab = "#B48CFF", bg = "#161718", chrome = "#0E0F10", card = "#202123", fg = "#EDEDE8", muted = "#8C8C86", accent = "#FF6A1A", accent_fg = "#111111", border = "#2C2D2F", sel = "#4A2A18", ok = "#5FD38A", warn = "#FFB224", err = "#FF5A4E", kw = "#7AA7FF", str = "#8BD69B", fn = "#FF8A4C", num = "#C9A2FF", com = "#6E6E6A", blue = "#7AA7FF", magenta = "#C9A2FF", cyan = "#5CC8D6" },
 	},
 	aviation = {
 		label = "Aviation    航空計器 (黒い計器盤にマゼンタと緑)",
 		font = { family = "JetBrains Mono", light = "Medium", dark = "Regular" },
-		light = { bg = "#EEF1F3", chrome = "#DCE2E6", card = "#FBFCFD", fg = "#0F1418", muted = "#5E6B74", accent = "#D6006E", accent_fg = "#FFFFFF", border = "#C5CED4", sel = "#F9CFE3", ok = "#128A55", warn = "#A86A00", err = "#C62828", kw = "#0069A8", str = "#128A55", fn = "#D6006E", num = "#A86A00", com = "#84919A", blue = "#0069A8", magenta = "#D6006E", cyan = "#00838F" },
-		dark = { bg = "#0F1418", chrome = "#090D10", card = "#182026", fg = "#E3EAEE", muted = "#7F8E98", accent = "#FF3D9A", accent_fg = "#0F1418", border = "#22303A", sel = "#3A1B2E", ok = "#39D98A", warn = "#FFC247", err = "#FF5252", kw = "#5CC8FF", str = "#39D98A", fn = "#FF7AB8", num = "#FFC247", com = "#5E6E78", blue = "#5CC8FF", magenta = "#FF7AB8", cyan = "#4DD9E8" },
+		light = { tab = "#5B45C9", bg = "#EEF1F3", chrome = "#DCE2E6", card = "#FBFCFD", fg = "#0F1418", muted = "#5E6B74", accent = "#D6006E", accent_fg = "#FFFFFF", border = "#C5CED4", sel = "#F9CFE3", ok = "#128A55", warn = "#A86A00", err = "#C62828", kw = "#0069A8", str = "#128A55", fn = "#D6006E", num = "#A86A00", com = "#84919A", blue = "#0069A8", magenta = "#D6006E", cyan = "#00838F" },
+		dark = { tab = "#A08CFF", bg = "#0F1418", chrome = "#090D10", card = "#182026", fg = "#E3EAEE", muted = "#7F8E98", accent = "#FF3D9A", accent_fg = "#0F1418", border = "#22303A", sel = "#3A1B2E", ok = "#39D98A", warn = "#FFC247", err = "#FF5252", kw = "#5CC8FF", str = "#39D98A", fn = "#FF7AB8", num = "#FFC247", com = "#5E6E78", blue = "#5CC8FF", magenta = "#FF7AB8", cyan = "#4DD9E8" },
 	},
 	thermal = {
 		label = "Thermal     サーモグラフィ (紫から橙の熱の色)",
 		font = { family = "FiraCode Nerd Font Mono", light = "Medium", dark = "Regular" },
-		light = { bg = "#EEE9F6", chrome = "#DDD5EC", card = "#FAF8FD", fg = "#17121F", muted = "#665E78", accent = "#E05A00", accent_fg = "#FFFFFF", border = "#CDC4DE", sel = "#FFE0C2", ok = "#137A5A", warn = "#A87A00", err = "#D11A2A", kw = "#6A35C9", str = "#A87A00", fn = "#E05A00", num = "#C21858", com = "#8A8396", blue = "#3D4FC9", magenta = "#C21858", cyan = "#0F7C8C" },
-		dark = { bg = "#110E19", chrome = "#0A0810", card = "#1C1726", fg = "#ECE6F2", muted = "#8C8499", accent = "#FF7A00", accent_fg = "#110E19", border = "#262036", sel = "#3D2414", ok = "#57D9A3", warn = "#FFC800", err = "#FF3B3B", kw = "#B07CFF", str = "#FFC800", fn = "#FF7A00", num = "#FF3B6E", com = "#625A70", blue = "#7C8CFF", magenta = "#FF5BA0", cyan = "#5CD6E0" },
+		light = { tab = "#6A35C9", bg = "#EEE9F6", chrome = "#DDD5EC", card = "#FAF8FD", fg = "#17121F", muted = "#665E78", accent = "#E05A00", accent_fg = "#FFFFFF", border = "#CDC4DE", sel = "#FFE0C2", ok = "#137A5A", warn = "#A87A00", err = "#D11A2A", kw = "#6A35C9", str = "#A87A00", fn = "#E05A00", num = "#C21858", com = "#8A8396", blue = "#3D4FC9", magenta = "#C21858", cyan = "#0F7C8C" },
+		dark = { tab = "#B07CFF", bg = "#110E19", chrome = "#0A0810", card = "#1C1726", fg = "#ECE6F2", muted = "#8C8499", accent = "#FF7A00", accent_fg = "#110E19", border = "#262036", sel = "#3D2414", ok = "#57D9A3", warn = "#FFC800", err = "#FF3B3B", kw = "#B07CFF", str = "#FFC800", fn = "#FF7A00", num = "#FF3B6E", com = "#625A70", blue = "#7C8CFF", magenta = "#FF5BA0", cyan = "#5CD6E0" },
 	},
 }
 
@@ -82,6 +83,9 @@ function M.build(c, mode)
 		accent = c.accent,
 		accent_fg = c.accent_fg,
 		accent_text = c.accent_text or c.accent,
+		-- タブバーの札の色 (紫系統の一系統) と、その色を地にした札の文字
+		tab_accent = c.tab or c.accent,
+		tab_accent_fg = dark and c.bg or "#FFFFFF",
 		-- カーソル・変換中の文字の下地: 差し色を背景に寄せて薄めた色
 		cursor = mix(c.accent, c.bg, dark and 0.45 or 0.6),
 		selection = c.sel,

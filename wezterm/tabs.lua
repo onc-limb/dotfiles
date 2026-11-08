@@ -4,9 +4,9 @@
 --
 -- - タブバーは「fancy」版を使い、本文の等幅フォントではなく UI 用の可変幅フォントで描く
 --   (ターミナルではなくアプリのタブ列に見せるため)
--- - タブバーの地は本文より一段沈んだ色 (chrome)。タブごとに装飾の色 (palette.deco) を順に割り当て、
---   アクティブなタブは名前まで、非アクティブなタブは番号だけをその色の札にする。
---   札は淡い地に同じ色相の濃い文字 (palette.deco_ink) で、濃い地に文字を載せない
+-- - タブバーの地は本文より一段沈んだ色 (chrome)。色はタブの色 (palette.tab_accent、紫系統) の一系統だけを使う:
+--   アクティブなタブはその色を地にした札 (名前まで)、非アクティブなタブは番号だけを
+--   その色の淡い地に同じ色相の濃い文字の札にする
 -- - タブの右端の 💬 ⏳ ✅ は、そのタブで一番急ぎのエージェントの状態 (入力待ち > 作業中 > 完了)
 local wezterm = require("wezterm")
 local palette = require("palette")
@@ -82,10 +82,9 @@ local function format_tab(tab, max_width)
 	end
 	name = wezterm.truncate_right(name, math.max(4, room))
 
-	-- タブごとに装飾の色を順に割り当てる。アクティブなタブは名前まで色の札にし、
-	-- 非アクティブなタブは番号だけを色の札にする
-	local idx = tab.tab_index % #palette.deco + 1
-	local color, ink = palette.deco[idx], palette.deco_ink[idx]
+	-- アクティブなタブは名前までタブの色の札、非アクティブなタブは番号だけを淡いタブの色の札にする
+	local color = tab.is_active and palette.tab_accent or palette.tint(palette.tab_accent)
+	local ink = tab.is_active and palette.tab_accent_fg or palette.ink(palette.tab_accent)
 	local cells = {
 		{ Background = { Color = color } },
 		{ Foreground = { Color = ink } },
@@ -108,7 +107,7 @@ local function format_tab(tab, max_width)
 	table.insert(cells, { Foreground = { Color = palette.tab_fg } })
 	table.insert(cells, { Text = "  " .. name })
 	if branch then
-		table.insert(cells, { Foreground = { Color = ink } })
+		table.insert(cells, { Foreground = { Color = palette.muted } })
 		table.insert(cells, { Text = "   " .. BRANCH .. " " .. branch })
 	end
 	if state and STATE_ICON[state] then

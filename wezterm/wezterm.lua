@@ -75,7 +75,7 @@ require("statusbar").setup(config, function(window)
 	session.save()
 end)
 
--- タブの見た目 (アクティブなタブは淡いアクセント色の丸い札、名前は リポジトリ名 と ブランチ) は tabs.lua
+-- タブの見た目 (紫系統の一系統: アクティブなタブはその色の札、名前は リポジトリ名 と ブランチ) は tabs.lua
 require("tabs").setup(config)
 
 ----------------------------------------------------
