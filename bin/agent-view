@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 STATE_DIR = os.path.expanduser("~/.local/state/agents")
 STASH = "_agents"
@@ -44,10 +45,17 @@ def cli(*args):
 
 
 def panes():
-    try:
-        return {p["pane_id"]: p for p in json.loads(cli("list", "--format", "json").stdout)}
-    except (ValueError, subprocess.SubprocessError, OSError):
-        return {}
+    # `wezterm cli list` sometimes fails for a moment (WezTerm busy, or a cli whose version differs from the
+    # running GUI); retry a few times before giving up, so a key press is not silently ignored
+    for attempt in range(3):
+        try:
+            result = cli("list", "--format", "json")
+            if result.returncode == 0:
+                return {p["pane_id"]: p for p in json.loads(result.stdout)}
+        except (ValueError, subprocess.SubprocessError, OSError):
+            pass
+        time.sleep(0.1 * (attempt + 1))
+    return {}
 
 
 def read_json(path):

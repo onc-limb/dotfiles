@@ -187,14 +187,22 @@ class Line:
 # ---------------------------------------------------------------- data
 
 
+_last_panes = []
+
+
 def wezterm_panes():
+    """All panes. When `wezterm cli list` fails (WezTerm busy for a moment, or a cli whose version differs from
+    the running GUI), keep the last list instead of drawing an empty dashboard for one refresh."""
+    global _last_panes
     try:
-        out = subprocess.run(
+        result = subprocess.run(
             ["wezterm", "cli", "list", "--format", "json"], capture_output=True, text=True, timeout=5
-        ).stdout
-        return json.loads(out)
+        )
+        if result.returncode == 0:
+            _last_panes = json.loads(result.stdout)
     except (OSError, ValueError, subprocess.SubprocessError):
-        return []
+        pass
+    return _last_panes
 
 
 def read_json(path):
