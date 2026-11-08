@@ -58,6 +58,16 @@ local function tab_name(tab, mux_tab)
 	return name, nil
 end
 
+-- タブ名に出す git の情報を取り直す (git を起動できる update-right-status から毎秒呼ぶ)
+function M.refresh_git(window)
+	for _, mux_tab in ipairs(window:mux_window():tabs()) do
+		local main = workspace.find_role_pane(mux_tab, "main")
+		if main then
+			statusbar.git_info(workspace.pane_cwd(main), true)
+		end
+	end
+end
+
 local function format_tab(tab, max_width)
 	local mux_tab = wezterm.mux.get_tab(tab.tab_id)
 	local name, branch = tab_name(tab, mux_tab)

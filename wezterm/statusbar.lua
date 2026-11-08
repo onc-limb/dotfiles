@@ -224,12 +224,18 @@ function M.right_status(window, pane)
 end
 
 -- git のリポジトリ名とブランチ名。worktree の中でも、元のリポジトリの名前を返す。
--- タブバーの更新・タブ名の描画のたびに呼ばれるので、ディレクトリごとに数秒キャッシュする
+-- ディレクトリごとに数秒キャッシュする。
+-- format-tab-title の中では git を起動できない (run_child_process が yield するため) ので、
+-- refresh = true で git を起動するのは update-right-status (tabs.refresh_git) だけにし、
+-- タブ名の描画ではキャッシュを読むだけにする
 local git_cache = {}
 local GIT_TTL_SEC = 5
-function M.git_info(path)
+function M.git_info(path, refresh)
 	local hit = git_cache[path]
 	local now = os.time()
+	if not refresh then
+		return hit and hit.info
+	end
 	if hit and now - hit.at < GIT_TTL_SEC then
 		return hit.info
 	end

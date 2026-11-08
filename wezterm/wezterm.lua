@@ -68,6 +68,7 @@ require("statusbar").setup(config, function(window)
 	if wezterm.GLOBAL.session_restoring then
 		return
 	end
+	require("tabs").refresh_git(window)
 	workspace.ensure_dashboard(window)
 	workspace.ensure_sidebars(window)
 	workspace.cleanup_agents()
