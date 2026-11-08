@@ -120,6 +120,11 @@ end
 function M.setup(config)
 	config.use_fancy_tab_bar = true
 	config.show_new_tab_button_in_tab_bar = false
+	-- タブの × は出さない (Cmd+w / LEADER X で閉じる)。この設定は 20240203 より後の版 (nightly) にしかなく、
+	-- 古い版で書くと設定ごと読み込めなくなるので、版を見てから設定する
+	if wezterm.version > "20240203-999999" then
+		config.show_close_tab_button_in_tabs = false
+	end
 	-- タブ名 (リポジトリ名  ブランチ) が切れないよう、既定の 16 文字より広くする
 	config.tab_max_width = 44
 	-- タブバーの文字: UI 用の可変幅フォント (日本語はヒラギノ、アイコンは Nerd Font で補う)
