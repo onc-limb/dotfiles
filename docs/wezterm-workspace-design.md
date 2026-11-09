@@ -165,8 +165,8 @@ nvim 側:
   起動時のモードで決まるので、切り替える前から動いているセッションは元の色のまま
 - カーソルと日本語の変換中の文字の下地は、差し色を背景に寄せて薄めた `cursor`
 - 装飾: メインの画面 (nvim・カード) は簡素なまま、エージェント一覧タブとタブバーだけ色を使う。
-  色はパターンの色を色相順に並べた `palette.deco`。タブは番号 (アクティブなタブは名前まで) を色の札にし、
-  右側の状態・モデル・利用制限も色の札にする。一覧タブは見出しをグラデーションの帯、作業環境のカードは
+  色はパターンの色を色相順に並べた `palette.deco`。アクティブなタブはタブの色 (紫系統) の札にし、
+  右側の状態・モデル・利用制限は色の札にする。一覧タブは見出しをグラデーションの帯、作業環境のカードは
   タイトル行を色で塗り、状態は色の札、利用制限のメーターは緑 → 黄 → 赤のグラデーションにする。
   札はどれも、その色を背景に寄せた淡い地 (`tint`) に、同じ色相を文字の色に寄せた文字 (`ink`) で描く。
   濃い地に文字を載せない (ライトでもダークでも読める)
@@ -199,6 +199,16 @@ nvim 側:
   （SessionStart の hook とステータスラインの `project_dir`）だけを記録する
 - 復旧は `WEZTERM_SESSION_FILE=<テスト用 json> wezterm start --always-new-process` で
   別プロセスの WezTerm を立てて試せる（動いている WezTerm の状態ファイルは消さない）
+- WezTerm の Lua の処理はメインスレッドで動く。重くなると描画も `wezterm cli` も止まり、一覧タブもエージェントの出し入れも固まる。
+  次の 2 つを守る:
+  - イベントごとに何度も呼ばれるフック (`format-tab-title`・`format-window-title` など) は使わない。
+    `format-tab-title` はペインのタイトルが変わるたびに全タブ分呼ばれ、そのたびに設定全体を Lua に変換する。
+    エージェントがタイトルを書き換え続けると CPU 100% で固まった (2026-11)。タブ名は `update-right-status` (毎秒) から
+    `set_title` で書き込む (`tabs.refresh`)。元のタブ名は `workspace.tab_name` で読む (`get_title` は表示用の名前を返す)
+  - 毎秒の `update-right-status` に処理を足すときは、外部コマンド (`run_child_process`) を毎回起動せずキャッシュする
+  - 一覧タブは `wezterm cli list` の応答時間を測り、1 秒以上かかったらヘッダーの下に警告を出す。
+    出たら `sample <wezterm-gui の pid> 3` でメインスレッドの中身を見る
+- Claude Code はタイトルをスピナーで書き換え続けるので、`settings.json` の `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` で止めている
 - Codex の hook は `~/.codex/hooks.json`（dotfiles 外）に登録している。仕事用の設定へは
   `bin/orca-hooks-sync` で Orca の hook と一緒にコピーする
 
