@@ -225,9 +225,8 @@ end
 
 -- git のリポジトリ名とブランチ名。worktree の中でも、元のリポジトリの名前を返す。
 -- ディレクトリごとに数秒キャッシュする。
--- format-tab-title の中では git を起動できない (run_child_process が yield するため) ので、
--- refresh = true で git を起動するのは update-right-status (tabs.refresh_git) だけにし、
--- タブ名の描画ではキャッシュを読むだけにする
+-- run_child_process は yield するので、refresh = true で git を起動するのは
+-- update-right-status から呼ぶ処理 (tabs.refresh) だけにし、それ以外はキャッシュを読むだけにする
 local git_cache = {}
 local GIT_TTL_SEC = 5
 function M.git_info(path, refresh)

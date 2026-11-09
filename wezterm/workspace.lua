@@ -71,6 +71,35 @@ function M.is_dashboard(tab)
 	return M.find_role_pane(tab, "dashboard") ~= nil
 end
 
+-- タブのタイトルには、tabs.lua が毎秒 表示用の名前 (リポジトリ名・ブランチ・状態) を set_title で書き込む。
+-- 元のタブ名 (set_title で付けた名前) は、書き込んだときに GLOBAL に覚えておく。
+-- 今のタイトルが書き込んだものと違えば、そのあと誰かが付け直したタブ名なのでそれを返す
+local function shown_key(tab)
+	return "tab_title_" .. tab:tab_id()
+end
+
+function M.tab_name(tab)
+	local title = tab:get_title() or ""
+	local shown = wezterm.GLOBAL[shown_key(tab)]
+	if shown and shown.title == title then
+		return shown.name
+	end
+	return title
+end
+
+-- 表示用の名前 title をタブに書き込む (name は元のタブ名)。変わらなければ何もしない
+function M.show_tab_title(tab, name, title)
+	if (tab:get_title() or "") == title then
+		return
+	end
+	wezterm.GLOBAL[shown_key(tab)] = { name = name, title = title }
+	tab:set_title(title)
+end
+
+local function is_dashboard_tab(tab)
+	return M.tab_name(tab) == M.DASHBOARD_TITLE or M.is_dashboard(tab)
+end
+
 local function git(cwd, ...)
 	local ok, out, err = wezterm.run_child_process({ "git", "-C", cwd, ... })
 	return ok and out or nil, err
@@ -407,7 +436,7 @@ function M.ensure_dashboard(window)
 		if w:get_workspace() == workspace then
 			for _, t in ipairs(w:tabs()) do
 				-- 作った直後は user var がまだ届いていないので、タイトルでも判定する
-				if t:get_title() == M.DASHBOARD_TITLE or M.is_dashboard(t) then
+				if is_dashboard_tab(t) then
 					return
 				end
 			end
@@ -696,7 +725,7 @@ end
 
 local function find_dashboard_tab(mux_window)
 	for _, t in ipairs(mux_window:tabs()) do
-		if t:get_title() == M.DASHBOARD_TITLE or M.is_dashboard(t) then
+		if is_dashboard_tab(t) then
 			return t
 		end
 	end
@@ -719,7 +748,7 @@ function M.pick_workspace()
 				table.insert(order, name)
 			end
 			for _, t in ipairs(w:tabs()) do
-				if not (t:get_title() == M.DASHBOARD_TITLE or M.is_dashboard(t)) then
+				if not is_dashboard_tab(t) then
 					summary[name].envs = summary[name].envs + 1
 				end
 				for _, item in ipairs(statusbar.agents_in_tab(t, agents)) do

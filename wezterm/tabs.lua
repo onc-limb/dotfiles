@@ -1,13 +1,14 @@
 -- 下のタブバーのタブの見た目 (左端のワークスペースの札は statusbar.lua)
 --
---    default   [1] ◆ agents  [2  dotfiles   main ⏳]  [3] app   feat-a 💬
+--    default   1: ◆ agents   2: dotfiles   main ⏳   3: app   feat-a 💬
 --
 -- - タブバーは「fancy」版を使い、本文の等幅フォントではなく UI 用の可変幅フォントで描く
 --   (ターミナルではなくアプリのタブ列に見せるため)
--- - タブバーの地は本文より一段沈んだ色 (chrome)。色はタブの色 (palette.tab_accent、紫系統) の一系統だけを使う:
---   アクティブなタブはその色を地にした札 (名前まで)、非アクティブなタブは番号だけを
---   その色の淡い地に同じ色相の濃い文字の札にする
+-- - タブバーの地は本文より一段沈んだ色 (chrome)。アクティブなタブだけタブの色 (palette.tab_accent、紫系統) の札にする
 -- - タブの右端の 💬 ⏳ ✅ は、そのタブで一番急ぎのエージェントの状態 (入力待ち > 作業中 > 完了)
+-- - タブ名は format-tab-title では作らず、update-right-status (毎秒) から set_title で書き込む (M.refresh)。
+--   format-tab-title はペインのタイトルが変わるたびに全タブ分呼ばれ、そのたびに設定全体を Lua に変換するため、
+--   エージェントが多いと WezTerm のメインスレッドが埋まって固まる
 local wezterm = require("wezterm")
 local palette = require("palette")
 local statusbar = require("statusbar")
@@ -41,80 +42,56 @@ local function tab_state(mux_tab)
 	return best
 end
 
--- タブの名前: 作業環境のタブ (メインの nvim がある) は リポジトリ名 と ブランチ。
+-- タブバーに出す名前: 作業環境のタブ (メインの nvim がある) は リポジトリ名 と ブランチ。
 -- worktree でも元のリポジトリ名を出すので、同じリポジトリの worktree はブランチで見分けられる。
 -- git の外ならディレクトリ名 (LEADER+n / Cmd+t で付けたタブ名)。
--- それ以外 (エージェント一覧・素のシェル) は、タブ名が付いていればそれ、なければアクティブペインのタイトル
-local function tab_name(tab, mux_tab)
-	local main = mux_tab and workspace.find_role_pane(mux_tab, "main")
-	local git = main and statusbar.git_info(workspace.pane_cwd(main))
+-- それ以外 (エージェント一覧・素のシェル) は、タブ名が付いていればそれ、なければアクティブペインのタイトル。
+-- 番号 (「1: 」) は WezTerm が付ける
+local TITLE_WIDTH = 40
+local function tab_title(mux_tab, name)
+	if name == workspace.DASHBOARD_TITLE or workspace.is_dashboard(mux_tab) then
+		return name
+	end
+	local main = workspace.find_role_pane(mux_tab, "main")
+	local git = main and statusbar.git_info(workspace.pane_cwd(main), true)
+	local state = tab_state(mux_tab)
+	local icon = state and STATE_ICON[state]
+	-- 名前もブランチも状態もなければ空のままにして、WezTerm にアクティブペインのタイトルを出させる
+	if not git and not icon then
+		return name
+	end
+	local label, branch = name, nil
 	if git then
-		return git.repo, git.branch
+		label, branch = git.repo, git.branch
+	elseif label == "" then
+		local pane = mux_tab:active_pane()
+		label = pane and pane:get_title() or ""
 	end
-	local name = tab.tab_title
-	if not name or name == "" then
-		name = tab.active_pane.title
-	end
-	return name, nil
-end
 
--- タブ名に出す git の情報を取り直す (git を起動できる update-right-status から毎秒呼ぶ)
-function M.refresh_git(window)
-	for _, mux_tab in ipairs(window:mux_window():tabs()) do
-		local main = workspace.find_role_pane(mux_tab, "main")
-		if main then
-			statusbar.git_info(workspace.pane_cwd(main), true)
-		end
-	end
-end
-
-local function format_tab(tab, max_width)
-	local mux_tab = wezterm.mux.get_tab(tab.tab_id)
-	local name, branch = tab_name(tab, mux_tab)
-	local state = mux_tab and tab_state(mux_tab)
-
-	-- 番号・名前・ブランチ・状態の ● を max_width に収める (余白で 4 文字)
-	local room = max_width - 4 - #tostring(tab.tab_index + 1) - (state and 2 or 0)
+	-- 名前・ブランチ・状態を TITLE_WIDTH に収める
+	local room = TITLE_WIDTH - (icon and 3 or 0)
 	if branch then
 		local branch_room = math.max(6, math.floor(room * 0.45))
 		branch = wezterm.truncate_right(branch, branch_room)
-		room = room - wezterm.column_width(branch) - 4
+		room = room - wezterm.column_width(branch) - 5
 	end
-	name = wezterm.truncate_right(name, math.max(4, room))
-
-	-- アクティブなタブは名前までタブの色の札、非アクティブなタブは番号だけを淡いタブの色の札にする
-	local color = tab.is_active and palette.tab_accent or palette.tint(palette.tab_accent)
-	local ink = tab.is_active and palette.tab_accent_fg or palette.ink(palette.tab_accent)
-	local cells = {
-		{ Background = { Color = color } },
-		{ Foreground = { Color = ink } },
-		{ Attribute = { Intensity = "Bold" } },
-		{ Text = " " .. (tab.tab_index + 1) .. " " },
-	}
-	if tab.is_active then
-		table.insert(cells, { Text = " " .. name })
-		if branch then
-			table.insert(cells, "ResetAttributes")
-			table.insert(cells, { Background = { Color = color } })
-			table.insert(cells, { Foreground = { Color = ink } })
-			table.insert(cells, { Text = "   " .. BRANCH .. " " .. branch })
-		end
-		table.insert(cells, { Text = " " .. (state and STATE_ICON[state] and (STATE_ICON[state] .. " ") or "") })
-		table.insert(cells, "ResetAttributes")
-		return cells
-	end
-	table.insert(cells, "ResetAttributes")
-	table.insert(cells, { Foreground = { Color = palette.tab_fg } })
-	table.insert(cells, { Text = "  " .. name })
+	local title = wezterm.truncate_right(label, math.max(4, room))
 	if branch then
-		table.insert(cells, { Foreground = { Color = palette.muted } })
-		table.insert(cells, { Text = "   " .. BRANCH .. " " .. branch })
+		title = title .. "   " .. BRANCH .. " " .. branch
 	end
-	if state and STATE_ICON[state] then
-		table.insert(cells, { Text = "  " .. STATE_ICON[state] })
+	if icon then
+		title = title .. "  " .. icon
 	end
-	table.insert(cells, { Text = "  " })
-	return cells
+	return title
+end
+
+-- ウィンドウのタブ名を書き直す (git を起動できる update-right-status から毎秒呼ぶ)。
+-- 変わったタブにだけ set_title する
+function M.refresh(window)
+	for _, mux_tab in ipairs(window:mux_window():tabs()) do
+		local name = workspace.tab_name(mux_tab)
+		workspace.show_tab_title(mux_tab, name, tab_title(mux_tab, name))
+	end
 end
 
 function M.setup(config)
@@ -142,13 +119,10 @@ function M.setup(config)
 	config.colors.tab_bar = {
 		background = palette.chrome,
 		inactive_tab_edge = palette.chrome,
-		active_tab = { bg_color = palette.bg, fg_color = palette.fg },
+		active_tab = { bg_color = palette.tab_accent, fg_color = palette.tab_accent_fg, intensity = "Bold" },
 		inactive_tab = { bg_color = palette.chrome, fg_color = palette.tab_fg },
 		inactive_tab_hover = { bg_color = palette.hover, fg_color = palette.fg },
 	}
-	wezterm.on("format-tab-title", function(tab, _, _, _, _, max_width)
-		return format_tab(tab, max_width)
-	end)
 end
 
 return M

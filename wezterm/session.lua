@@ -32,7 +32,7 @@ local function snapshot()
 		end
 		for _, tab in ipairs(win:tabs()) do
 			local entry
-			if workspace.is_dashboard(tab) or tab:get_title() == workspace.DASHBOARD_TITLE then
+			if workspace.is_dashboard(tab) or workspace.tab_name(tab) == workspace.DASHBOARD_TITLE then
 				entry = { kind = "dashboard" }
 			else
 				local main = workspace.find_role_pane(tab, "main")
@@ -40,7 +40,7 @@ local function snapshot()
 				entry = {
 					kind = main and "worktree" or "shell",
 					cwd = workspace.pane_cwd(main or workspace.home_pane(tab)),
-					title = tab:get_title(),
+					title = workspace.tab_name(tab),
 				}
 			end
 			entry.agents = {}
