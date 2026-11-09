@@ -2,11 +2,12 @@
 --
 -- 各 worktree タブ:
 --   左 (main)     : メインの nvim (neo-tree 常駐、ファイルとターミナル)。nvim を抜けても zsh が残る
---   右 (agent)    : そのタブのエージェント 1 つ (そのまま操作できる)。ほかのエージェントは見えないワークスペース (STASH)
---                   で待たせ、Cmd+a / LEADER 数字で入れ替える (bin/agent-view)。LEADER z で隠す / 出す
---   幅            : nvim がファイルを開いていればエージェントは右に寄せ (全体の 30%)、ファイルがなければ
---                   nvim をツリーの幅まで縮めてエージェントを広げる (nvim が user var workbench_layout で知らせる)。
---                   Cmd+Shift+a で、ファイルを開いていてもエージェントを広げる (ツリーを見ながら指示を出す) / 戻す
+--   右 (agent)    : そのタブのエージェントを縦に積んだ列 (そのまま操作できる。上からタブバーの ① ② の順、高さは等分)。
+--                   Cmd+a / LEADER 数字でエージェントに移る。LEADER z で列ごと見えないワークスペース (STASH) に隠す / 出す
+--                   (bin/agent-view)
+--   幅            : nvim がファイルを開いていればエージェントの列は右に寄せ (全体の 30%)、ファイルがなければ
+--                   nvim をツリーの幅まで縮めて列を広げる (nvim が user var workbench_layout で知らせる)。
+--                   Cmd+Shift+a で、ファイルを開いていても列を広げる (ツリーを見ながら指示を出す) / 戻す
 -- ワークスペースごとに閉じられないエージェント一覧タブ (dashboard) を 1 つ置く。
 --
 -- ペインの役割は、ペインの中のシェルが OSC 1337 SetUserVar で書き込む user var で見分ける
@@ -197,7 +198,7 @@ function M.spawn_agent(home, tool, session_id, cwd)
 	return pane
 end
 
--- bin/agent-view show / hide を呼ぶ (エージェントをタブの右に出す / 見えないワークスペースに戻す)
+-- bin/agent-view show / hide を呼ぶ (エージェントをタブの右の列に積む / 見えないワークスペースに戻す)
 local function agent_view(cmd, pane_id, ...)
 	wezterm.run_child_process({ BIN .. "/agent-view", cmd, tostring(pane_id), ... })
 end
@@ -240,30 +241,84 @@ local function is_wide(tab)
 	return wide_tabs()[tostring(tab:tab_id())] == true
 end
 
--- nvim とエージェントの幅を、nvim が知らせる workbench_layout と Cmd+Shift+a の切り替えに合わせる。
--- 合わせたあとに手で幅を変えても戻さないよう、(layout, Cmd+Shift+a の切り替え, エージェント, 全体の幅) が変わったときだけ合わせる
+local function cli(...)
+	wezterm.run_child_process({ wezterm.executable_dir .. "/wezterm", "cli", ... })
+end
+
+-- wezterm cli adjust-pane-size は --pane-id のペインではなく、そのタブのアクティブなペインの境界を動かす。
+-- 縦横それぞれ、そのペインに一番近い分割の境界が direction の向きに動く
+local function adjust_pane(pane_id, amount, direction)
+	cli("adjust-pane-size", "--pane-id", tostring(pane_id), "--amount", tostring(amount), direction)
+end
+
+-- 右の列のエージェントの高さを等分する。列は agent-view が一番下のエージェントを分割して積むので、
+-- 上から順にそのエージェントをアクティブにして下の境界を動かし (動かすたびに高さを読み直す)、最後にフォーカスを戻す
+local function equalize_column(tab, ids)
+	local active = tab:active_pane()
+	for i = 1, #ids - 1 do
+		local heights = {}
+		for _, info in ipairs(tab:panes_with_info()) do
+			heights[info.pane:pane_id()] = info.height
+		end
+		local rest = 0
+		for j = i, #ids do
+			rest = rest + (heights[ids[j]] or 0)
+		end
+		local delta = math.floor(rest / (#ids - i + 1)) - (heights[ids[i]] or 0)
+		if delta ~= 0 then
+			cli("activate-pane", "--pane-id", tostring(ids[i]))
+			adjust_pane(ids[i], math.abs(delta), delta > 0 and "Down" or "Up")
+		end
+	end
+	if active and tab:active_pane():pane_id() ~= active:pane_id() then
+		cli("activate-pane", "--pane-id", tostring(active:pane_id()))
+	end
+end
+
+-- nvim とエージェントの列の幅を、nvim が知らせる workbench_layout と Cmd+Shift+a の切り替えに合わせ、列の高さを等分する。
+-- 合わせたあとに手で大きさを変えても戻さないよう、(layout, Cmd+Shift+a の切り替え, 列のエージェント, 全体の大きさ)
+-- が変わったときだけ合わせる
 local applied = {}
 function M.apply_layout(tab)
 	local infos = tab:panes_with_info()
-	if #infos ~= 2 then
-		return
-	end
-	local main, agent
+	local main, column = nil, {}
 	for _, info in ipairs(infos) do
 		local role = role_of(info.pane)
 		if role == "main" then
 			main = info
 		elseif role == "agent" then
-			agent = info
+			table.insert(column, info)
 		end
 	end
-	if not (main and agent) or agent.left <= main.left or agent.top ~= main.top then
+	-- nvim と、その右に縦に積んだエージェントだけのタブ
+	if not main or #column == 0 or #infos ~= #column + 1 then
 		return
 	end
-	local total = main.width + agent.width + 1
+	table.sort(column, function(a, b)
+		return a.top < b.top
+	end)
+	local left, width = column[1].left, column[1].width
+	if left <= main.left or column[1].top ~= main.top then
+		return
+	end
+	local ids, height = {}, #column - 1
+	for _, info in ipairs(column) do
+		if info.left ~= left or info.width ~= width then
+			return
+		end
+		table.insert(ids, info.pane:pane_id())
+		height = height + info.height
+	end
+	-- 高さをそろえるときにペインをアクティブにするので、見ているタブだけ合わせる (ほかのタブは開いたときに合わせる)
+	local window = tab:window()
+	local current = window and window:active_tab()
+	if not (current and current:tab_id() == tab:tab_id()) then
+		return
+	end
+	local total = main.width + width + 1
 	local layout = main.pane:get_user_vars().workbench_layout or ""
 	local wide = is_wide(tab)
-	local key = string.format("%s:%s:%d:%d", layout, tostring(wide), agent.pane:pane_id(), total)
+	local key = string.format("%s:%s:%s:%d:%d", layout, tostring(wide), table.concat(ids, ","), total, height)
 	if applied[tab:tab_id()] == key then
 		return
 	end
@@ -277,17 +332,16 @@ function M.apply_layout(tab)
 	-- 狭いウィンドウでもエージェントに 20 セルは残す
 	target = math.max(1, math.min(target, total - 1 - 20))
 	local delta = main.width - target
+	-- 左右の境界は nvim と列のあいだにしかないので、どのペインがアクティブでも同じ境界が動く
 	if delta ~= 0 then
-		wezterm.run_child_process({
-			wezterm.executable_dir .. "/wezterm", "cli", "adjust-pane-size",
-			"--pane-id", tostring(main.pane:pane_id()), "--amount", tostring(math.abs(delta)), delta > 0 and "Left" or "Right",
-		})
+		adjust_pane(main.pane:pane_id(), math.abs(delta), delta > 0 and "Left" or "Right")
 	end
+	equalize_column(tab, ids)
 end
 
--- 作業環境のタブにエージェントがいるのに右に出ていなければ、最後に表示したもの (なければ 1 つ目) を
--- フォーカスを移さずに出し、幅を合わせる (update-status から毎秒呼ばれる。復旧したタブ・エージェント一覧から
--- 起動したエージェント・表示中のエージェントが終了したとき用)。LEADER z で隠したタブには出さない
+-- 作業環境のタブのエージェントが右の列にそろっていなければ、残りを列に積み (フォーカスは移さない)、
+-- 大きさを合わせる (update-status から毎秒呼ばれる。復旧したタブ・エージェント一覧から起動したエージェント用)。
+-- LEADER z で隠したタブには出さない
 function M.ensure_agent_shown(window)
 	local tab = window:active_tab()
 	local main = tab and M.find_role_pane(tab, "main")
@@ -298,17 +352,14 @@ function M.ensure_agent_shown(window)
 	for _, p in ipairs(tab:panes()) do
 		in_tab[p:pane_id()] = true
 	end
-	local mine = {}
+	local missing = nil
 	for _, item in ipairs(statusbar.agents_in_tab(tab)) do
-		if in_tab[item.pane:pane_id()] then
-			M.apply_layout(tab)
-			return
-		end
-		if item.agent.home == main:pane_id() then
-			table.insert(mine, item)
+		if item.agent.home == main:pane_id() and not in_tab[item.pane:pane_id()] then
+			missing = missing or item
 		end
 	end
-	if #mine == 0 then
+	if not missing then
+		M.apply_layout(tab)
 		return
 	end
 	local hidden = io.open(state_file("hidden", main), "r")
@@ -316,13 +367,7 @@ function M.ensure_agent_shown(window)
 		hidden:close()
 		return
 	end
-	local target, last = mine[1], last_shown(main)
-	for _, item in ipairs(mine) do
-		if item.pane:pane_id() == last then
-			target = item
-		end
-	end
-	agent_view("show", target.pane:pane_id(), "--no-focus")
+	agent_view("show", missing.pane:pane_id(), "--no-focus")
 end
 
 -- 所属するペインが無くなった (タブを閉じた) エージェントを止め、終了したエージェントの状態ファイルを消す。
@@ -520,7 +565,7 @@ local function in_workbench(window, pane, name, ...)
 	return true
 end
 
--- LEADER+c / LEADER+x: エージェントを起動して右に出し、フォーカスを移す
+-- LEADER+c / LEADER+x: エージェントを起動して右の列の一番下に積み、フォーカスを移す
 function M.launch_agent(tool)
 	return wezterm.action_callback(function(window, pane)
 		local tab = window:active_tab()
@@ -572,20 +617,24 @@ local function shown_index(tab, agents)
 	return nil
 end
 
--- Cmd+a: 右に次のエージェントを出す
+-- Cmd+a: 右の列の次のエージェントへ (nvim からは一番上へ)。隠していれば列を出す
 function M.cycle_agent()
-	return wezterm.action_callback(function(window)
-		local tab = window:active_tab()
-		local agents = statusbar.agents_in_tab(tab)
+	return wezterm.action_callback(function(window, pane)
+		local agents = statusbar.agents_in_tab(window:active_tab())
 		if #agents == 0 then
 			return
 		end
-		local i = shown_index(tab, agents)
-		agent_view("show", agents[i and (i % #agents + 1) or 1].pane:pane_id())
+		local next_index = 1
+		for i, item in ipairs(agents) do
+			if item.pane:pane_id() == pane:pane_id() then
+				next_index = i % #agents + 1
+			end
+		end
+		agent_view("show", agents[next_index].pane:pane_id())
 	end)
 end
 
--- LEADER+数字: 右に n 番目のエージェントを出す (タブバーの ① ② と同じ番号)
+-- LEADER+数字: n 番目のエージェントへ (タブバーの ① ② と同じ番号)。隠していれば列を出す
 function M.focus_agent(n)
 	return wezterm.action_callback(function(window)
 		local item = statusbar.agents_in_tab(window:active_tab())[n]
@@ -595,8 +644,8 @@ function M.focus_agent(n)
 	end)
 end
 
--- Cmd+Shift+a: ファイルを開いていても、ツリーだけ残してエージェントを広げる / 戻す (タブごと)。
--- エージェントが隠れていれば出す
+-- Cmd+Shift+a: ファイルを開いていても、ツリーだけ残してエージェントの列を広げる / 戻す (タブごと)。
+-- 列を隠していれば出す
 function M.toggle_agent_wide()
 	return wezterm.action_callback(function(window, pane)
 		local tab = window:active_tab()
@@ -621,7 +670,7 @@ function M.toggle_agent_wide()
 	end)
 end
 
--- LEADER+z: 右のエージェントを隠す / 最後に見たエージェントを出す (隠している間は自動で出さない)。
+-- LEADER+z: 右のエージェントの列を隠す / 出して最後に見たエージェントに移る (隠している間は自動で出さない)。
 -- エージェントのいないタブでは、ふつうのペインの拡大・縮小
 function M.toggle_agent()
 	return wezterm.action_callback(function(window, pane)

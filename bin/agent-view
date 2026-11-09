@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """Show an agent in its work environment, or put it away.
 
-One agent at a time sits in the right pane of its work environment tab, where you use it directly
-(no zoom). The other agents of the tab wait in a hidden workspace (STASH; WezTerm shows no window for a
-workspace that is not active) until they are swapped in. The width of the right pane follows the main
-nvim (wezterm/workspace.lua apply_layout).
+The agents of a work environment tab are stacked in a column on the right of the tab, in pane-id order
+(the same order as the numbers in the tab bar), where you use them directly (no zoom). While put away
+(LEADER z) or before their tab is opened (restored sessions), they wait in a hidden workspace (STASH;
+WezTerm shows no window for a workspace that is not active). The width of the column and the equal heights
+of the agents follow the main nvim (wezterm/workspace.lua apply_layout).
 
 Each agent's home is the pane it belongs to (the main nvim of the work environment, or the dashboard):
 the "home" field of ~/.local/state/agents/<pane>.json, written by wezterm/workspace.lua and bin/agent-state.
 
 Usage:
-  agent-view show <pane> [--no-focus]   put the agent in the right pane of its home tab (putting away the one
-                                        shown there) and focus it; --no-focus keeps the focus where it is
+  agent-view show <pane> [--no-focus]   stack the agent, with every other agent of its home, in the right column
+                                        of its home tab and focus it; --no-focus keeps the focus where it is
   agent-view hide <pane>                move the agent back to the hidden workspace and focus its home pane
-                                        (the tab then stays without an agent until one is shown again)
+                                        (the tab stays without it until an agent is shown again)
 """
 import json
 import os
@@ -103,12 +104,26 @@ def show(pane_id, focus=True):
     if not agent or home not in all_panes:
         return
     tab = all_panes[home]["tab_id"]
-    if agent["tab_id"] != tab:
-        # Only one agent at a time in the tab: put away the others of this tab
-        for p in all_panes.values():
-            if p["tab_id"] == tab and p["pane_id"] not in (home, pane_id) and home_of(p["pane_id"]) is not None:
-                stash(p["pane_id"])
-        cli("split-pane", "--pane-id", home, "--right", "--percent", 40, "--move-pane-id", pane_id)
+    # Every agent of this home, top to bottom of the column
+    mine = sorted(p for p in all_panes if p != home and home_of(p) == home)
+    missing = [p for p in mine if all_panes[p]["tab_id"] != tab]
+    if missing:
+        # Keep the column in pane-id order: put away the ones that belong below the first missing agent,
+        # then stack all of them again under the rest
+        for p in mine:
+            if p > missing[0] and all_panes[p]["tab_id"] == tab:
+                stash(p)
+        column = [p for p in mine if p < missing[0] and all_panes[p]["tab_id"] == tab]
+        bottom = max(column, key=lambda p: all_panes[p]["top_row"]) if column else None
+        for p in mine:
+            if p in column:
+                continue
+            if bottom is None:
+                cli("split-pane", "--pane-id", home, "--right", "--percent", 40, "--move-pane-id", p)
+            else:
+                # The heights are made equal by wezterm/workspace.lua apply_layout
+                cli("split-pane", "--pane-id", bottom, "--bottom", "--percent", 50, "--move-pane-id", p)
+            bottom = p
     # The pane is used where it is, never zoomed (also undo the zoom of older versions)
     cli("zoom-pane", "--pane-id", pane_id, "--unzoom")
     if focus:

@@ -114,7 +114,7 @@ local function exists(path)
 end
 
 -- home: エージェントが所属するペイン (作業環境のメインの nvim など)。
--- エージェントは見えないワークスペースで再開し、タブを開いたときに右に出る (workspace.ensure_agent_shown)
+-- エージェントは見えないワークスペースで再開し、タブを開いたときに右の列に積む (workspace.ensure_agent_shown)
 local function restore_agents(home, list, cwd)
 	for _, a in ipairs(list or {}) do
 		if a.tool then
