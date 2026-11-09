@@ -190,18 +190,28 @@ class Line:
 
 
 _last_panes = []
+# How long the last `wezterm cli list` took (None until the first call, CLI_TIMEOUT_SEC when it timed out).
+# A slow answer means the WezTerm GUI main thread is busy, usually a Lua handler that runs too often or does too much
+# (format-tab-title once kept it at 100% CPU), so the header warns about it (SLOW_WEZTERM_SEC)
+CLI_TIMEOUT_SEC = 5
+SLOW_WEZTERM_SEC = 1.0
+wezterm_latency = None
 
 
 def wezterm_panes():
     """All panes. When `wezterm cli list` fails (WezTerm busy for a moment, or a cli whose version differs from
     the running GUI), keep the last list instead of drawing an empty dashboard for one refresh."""
-    global _last_panes
+    global _last_panes, wezterm_latency
+    started = time.monotonic()
     try:
         result = subprocess.run(
-            ["wezterm", "cli", "list", "--format", "json"], capture_output=True, text=True, timeout=5
+            ["wezterm", "cli", "list", "--format", "json"], capture_output=True, text=True, timeout=CLI_TIMEOUT_SEC
         )
         if result.returncode == 0:
             _last_panes = json.loads(result.stdout)
+        wezterm_latency = time.monotonic() - started
+    except subprocess.TimeoutExpired:
+        wezterm_latency = CLI_TIMEOUT_SEC
     except (OSError, ValueError, subprocess.SubprocessError):
         pass
     return _last_panes
@@ -564,6 +574,11 @@ def layout(workspace, envs, items, cursor, flat):
     for row_text in (" " * avail, text, " " * avail):
         scr.put(banner(row_text, avail))
     scr.blank()
+    if wezterm_latency is not None and wezterm_latency >= SLOW_WEZTERM_SEC:
+        took = f"{CLI_TIMEOUT_SEC}s 以上" if wezterm_latency >= CLI_TIMEOUT_SEC else f"{wezterm_latency:.1f}s"
+        warn = fit(f" ⚠ WezTerm の応答が遅い ({took})  CPU を使い続けていないか確認 (docs/wezterm-workspace-design.md の実装メモ) ", avail)
+        scr.put(Line().add(" " * MARGIN).add(warn, fg=ink_of(PAL["error"]), bg=tint(PAL["error"]), bold=True))
+        scr.blank()
 
     # ---- quotas
     qs = quotas()
