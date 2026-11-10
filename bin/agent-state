@@ -72,6 +72,10 @@ def update_pane(fields):
     if os.environ.get("AGENT_HOME", "").isdigit():
         data["home"] = int(os.environ["AGENT_HOME"])
     data["updated_at"] = int(time.time())
+    # When a hook last set the state (the status line also bumps updated_at). bin/agent-spawn wait
+    # compares it with the time it sent a message, so a turn that ends before it polls is not missed
+    if fields.get("state") is not None:
+        data["state_at"] = time.time()
     write_json(path, data)
 
 
@@ -193,6 +197,10 @@ def activity(data):
 
 def handle_hook(tool, data):
     event = data.get("hook_event_name") or ""
+    # A headless `claude -p` started inside the pane (a hook or a script of the pane's agent) inherits
+    # WEZTERM_PANE; its hooks would overwrite the pane's agent's state (and agent-spawn wait would see it)
+    if tool == "claude" and os.environ.get("CLAUDE_CODE_ENTRYPOINT") == "sdk-cli":
+        return
     path = pane_path()
     if event == "SessionEnd":
         if path and read_json(path).get("session_id") in (None, data.get("session_id")):
