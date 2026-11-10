@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""Start Claude Code / Codex in a WezTerm pane from another agent, and talk to it (no Orca).
+
+The new agent is started the same way as LEADER+c / LEADER+x (wezterm/workspace.lua spawn_agent):
+in the hidden workspace with role/tool user vars, through claude-auto / codex-auto, with AGENT_HOME set,
+and an initial state file so the tab bar, the right column and the dashboard count it at once.
+It is then stacked in the right column of its home tab (bin/agent-view show --no-focus).
+
+Home (the pane the agent belongs to): --home, else the caller's AGENT_HOME (an agent in a work
+environment tab: the child joins the same tab), else the caller's own pane (WEZTERM_PANE).
+
+Usage:
+  agent-spawn launch --tool codex|claude --cwd DIR [--home PANE] [--prompt TEXT | --prompt-file FILE]
+                     [--no-show] [-- EXTRA_ARGS...]
+      Prints {"pane": N, "home": H, ...} as JSON. The prompt is passed as the first message.
+  agent-spawn send PANE (--text TEXT | --text-file FILE) [--no-enter]
+      Pastes the text into the agent's input and presses Enter.
+  agent-spawn read PANE [--lines N]
+      Prints the last N lines (default 80) of the pane.
+  agent-spawn wait PANE [--timeout SEC] [--interval SEC]
+      Waits until the agent stops (state done) or asks for input (waiting) after the last launch / send
+      (state_at, written by bin/agent-state from the agent's hooks, is compared with that time). Prints {"state": ..., "timed_out": bool}.
+      Exit 0 = done / waiting, 2 = timed out, 3 = the pane is gone.
+  agent-spawn state PANE
+      Prints the agent's state file.
+  agent-spawn kill PANE
+      Closes the pane (ends the agent).
+
+Run it from inside WezTerm (wezterm cli needs the GUI's socket).
+"""
+import argparse
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+STATE_DIR = os.path.expanduser("~/.local/state/agents")
+STASH = "_agents"  # same as wezterm/workspace.lua M.STASH and bin/agent-view
+
+
+def wezterm():
+    gui = os.environ.get("WEZTERM_EXECUTABLE")
+    for path in (gui and os.path.join(os.path.dirname(gui), "wezterm"), shutil.which("wezterm"),
+                 "/opt/homebrew/bin/wezterm", "/Applications/WezTerm.app/Contents/MacOS/wezterm"):
+        if path and os.path.exists(path):
+            return path
+    return "wezterm"
+
+
+def cli(*args, input_text=None):
+    return subprocess.run([wezterm(), "cli", *map(str, args)], input=input_text, text=True,
+                          capture_output=True, check=True).stdout
+
+
+def state_path(pane):
+    return os.path.join(STATE_DIR, f"{pane}.json")
+
+
+def read_state(pane):
+    try:
+        with open(state_path(pane)) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def sent_path(pane):
+    return os.path.join(STATE_DIR, f"sent-{pane}")
+
+
+def mark_sent(pane):
+    """Remember when the agent was last given a message (wait only accepts a state set after it)."""
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(sent_path(pane), "w") as f:
+        f.write(repr(time.time()))
+
+
+def last_sent(pane):
+    try:
+        with open(sent_path(pane)) as f:
+            return float(f.read().strip())
+    except (OSError, ValueError):
+        return 0.0
+
+
+def pane_exists(pane):
+    try:
+        return any(p["pane_id"] == int(pane) for p in json.loads(cli("list", "--format", "json")))
+    except (subprocess.CalledProcessError, ValueError):
+        return False
+
+
+def set_var_cmd(name, value):
+    # OSC 1337 SetUserVar, as wezterm/workspace.lua set_var_cmd
+    return f"printf '\\033]1337;SetUserVar=%s=%s\\007' {name} $(printf %s {shlex.quote(value)} | base64)"
+
+
+def resolve_home(explicit):
+    for value in (explicit, os.environ.get("AGENT_HOME"), os.environ.get("WEZTERM_PANE")):
+        if value and str(value).isdigit():
+            return int(value)
+    sys.exit("agent-spawn: no home pane (run inside WezTerm or pass --home)")
+
+
+def cmd_launch(a):
+    cwd = os.path.abspath(os.path.expanduser(a.cwd))
+    if not os.path.isdir(cwd):
+        sys.exit(f"agent-spawn: no such directory: {cwd}")
+    home = resolve_home(a.home)
+    prompt = a.prompt
+    if a.prompt_file:
+        with open(a.prompt_file) as f:
+            prompt = f.read()
+    launcher = os.path.join(BIN, "codex-auto" if a.tool == "codex" else "claude-auto")
+    argv = [launcher, *a.extra]
+    if prompt:
+        argv.append(prompt)
+    shell = "; ".join([
+        # wezterm cli spawn passes the caller's environment. Drop the calling agent's session markers
+        # (a child Claude otherwise stops saving its transcript) and its config / Orca vars, so the new
+        # agent starts like LEADER+c / LEADER+x and claude-auto / codex-auto pick the profile from cwd.
+        # Variables set in settings.json "env" (e.g. CLAUDE_CODE_EXPERIMENTAL_*) are applied again.
+        "unset -m 'CLAUDE_CODE_*' 'CODEX_*' 'ORCA_*' 2>/dev/null",
+        "unset CLAUDECODE CLAUDE_PID CLAUDE_EFFORT CLAUDE_CONFIG_DIR ENABLE_CLAUDEAI_MCP_SERVERS 2>/dev/null",
+        set_var_cmd("role", "agent"),
+        set_var_cmd("tool", a.tool),
+        f"export AGENT_HOME={home}",
+        "exec " + " ".join(shlex.quote(x) for x in argv),
+    ])
+    # Same as wezterm/workspace.lua M.zsh: an interactive login shell, so PATH has mise / homebrew /
+    # ~/.local/bin in the same order as in a pane (-lc without -i misses mise and picks an old codex),
+    # and cd first because this WezTerm may ignore --cwd when a command is given
+    shell = f"cd {shlex.quote(cwd)} || exit 1; " + shell
+    out = cli("spawn", "--new-window", "--workspace", STASH, "--cwd", cwd, "--", "/bin/zsh", "-lic", shell)
+    pane = int(out.strip())
+    mark_sent(pane)
+    # Count it as an agent of its home before its hooks write anything (as spawn_agent does)
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(state_path(pane), "w") as f:
+        json.dump({"tool": a.tool, "state": "idle", "pane": pane, "home": home, "cwd": cwd,
+                   "updated_at": int(time.time())}, f, ensure_ascii=False)
+    if not a.no_show:
+        subprocess.run([os.path.join(BIN, "agent-view"), "show", str(pane), "--no-focus"],
+                       capture_output=True, text=True)
+    print(json.dumps({"pane": pane, "home": home, "tool": a.tool, "cwd": cwd}, ensure_ascii=False))
+
+
+def cmd_send(a):
+    text = a.text
+    if a.text_file:
+        with open(a.text_file) as f:
+            text = f.read()
+    if not text:
+        sys.exit("agent-spawn: nothing to send")
+    mark_sent(a.pane)
+    cli("send-text", "--pane-id", a.pane, input_text=text)  # bracketed paste: newlines stay in the input
+    if not a.no_enter:
+        time.sleep(0.3)
+        cli("send-text", "--pane-id", a.pane, "--no-paste", input_text="\r")
+
+
+def cmd_read(a):
+    sys.stdout.write(cli("get-text", "--pane-id", a.pane, "--start-line", -abs(a.lines)))
+
+
+def cmd_wait(a):
+    deadline = time.time() + a.timeout
+    since = a.since if a.since is not None else last_sent(a.pane)
+    while time.time() < deadline:
+        st = read_state(a.pane)
+        state = st.get("state")
+        if state in ("done", "waiting") and float(st.get("state_at") or 0) >= since:
+            print(json.dumps({"state": state, "activity": st.get("activity"), "timed_out": False},
+                             ensure_ascii=False))
+            return 0
+        if not pane_exists(a.pane):
+            print(json.dumps({"state": "gone", "timed_out": False}))
+            return 3
+        time.sleep(a.interval)
+    print(json.dumps({"state": read_state(a.pane).get("state"), "timed_out": True}))
+    return 2
+
+
+def cmd_state(a):
+    print(json.dumps(read_state(a.pane), ensure_ascii=False, indent=2))
+
+
+def cmd_kill(a):
+    cli("kill-pane", "--pane-id", a.pane)
+    try:
+        os.remove(sent_path(a.pane))
+    except OSError:
+        pass
+
+
+def main():
+    p = argparse.ArgumentParser(prog="agent-spawn", description=__doc__.split("\n\n")[0])
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("launch")
+    s.add_argument("--tool", choices=["claude", "codex"], required=True)
+    s.add_argument("--cwd", required=True)
+    s.add_argument("--home", type=int)
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--prompt")
+    g.add_argument("--prompt-file")
+    s.add_argument("--no-show", action="store_true", help="leave it in the hidden workspace")
+    s.add_argument("extra", nargs=argparse.REMAINDER, help="-- args passed to claude / codex")
+    s.set_defaults(fn=cmd_launch)
+
+    s = sub.add_parser("send")
+    s.add_argument("pane", type=int)
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--text")
+    g.add_argument("--text-file")
+    s.add_argument("--no-enter", action="store_true")
+    s.set_defaults(fn=cmd_send)
+
+    s = sub.add_parser("read")
+    s.add_argument("pane", type=int)
+    s.add_argument("--lines", type=int, default=80)
+    s.set_defaults(fn=cmd_read)
+
+    s = sub.add_parser("wait")
+    s.add_argument("pane", type=int)
+    s.add_argument("--timeout", type=float, default=1800)
+    s.add_argument("--interval", type=float, default=3)
+    s.add_argument("--since", type=float, help="epoch seconds; default: the last launch / send")
+    s.set_defaults(fn=cmd_wait)
+
+    for name, fn in (("state", cmd_state), ("kill", cmd_kill)):
+        s = sub.add_parser(name)
+        s.add_argument("pane", type=int)
+        s.set_defaults(fn=fn)
+
+    a = p.parse_args()
+    if getattr(a, "extra", None) and a.extra[0] == "--":
+        a.extra = a.extra[1:]
+    try:
+        sys.exit(a.fn(a) or 0)
+    except subprocess.CalledProcessError as e:
+        sys.exit(f"agent-spawn: wezterm cli {' '.join(map(str, e.cmd[2:4]))} failed: {e.stderr.strip()}")
+
+
+if __name__ == "__main__":
+    main()
