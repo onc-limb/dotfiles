@@ -11,7 +11,7 @@ local M = {}
 
 M.state_dir = wezterm.home_dir .. "/.local/state/agents"
 
-local STATE_ICON = { working = "⏳", waiting = "💬", done = "✅", idle = "·" }
+local STATE_ICON = { working = "⏳", waiting = "💬", watching = "👀", done = "✅", idle = "·" }
 M.STATE_ICON = STATE_ICON
 local TOOL_LABEL = { claude = "C", codex = "X" }
 local CIRCLED = { "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨" }

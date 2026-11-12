@@ -76,7 +76,8 @@ WezTerm は読むだけ、エージェント側は書くだけ。
 |---|---|---|
 | working ⏳ | UserPromptSubmit / PreToolUse | UserPromptSubmit / PreToolUse |
 | waiting 💬 | Notification / PermissionRequest | PermissionRequest |
-| done ✅ | Stop | Stop |
+| watching 👀 | Stop (バックグラウンドのコマンドか子エージェントが動いている) | Stop (同じ) |
+| done ✅ | Stop / watching で待っていたものが終わった | Stop |
 | (削除) | SessionEnd | SessionEnd |
 
 状態ファイルの例:
@@ -91,6 +92,10 @@ WezTerm は読むだけ、エージェント側は書くだけ。
   トランスクリプトから最後の入力を読む
 - `activity`: PreToolUse のツール名と対象 (ファイル名・コマンドなど)。Stop と次の入力で消す
 - `home`: エージェントを起動した WezTerm が `AGENT_HOME` で渡す
+- `parent`: `bin/agent-spawn launch` で起動したとき、起動したエージェントのペイン
+- `watching` (監視中): ターンの終わり (Stop) に、そのターン中 (最後の入力から) に起動したバックグラウンドのコマンド
+  (エージェントのプロセスの直下のシェル) か、`parent` が自分の子エージェントがまだ動いていれば、`done` ではなくこれにする。
+  Stop の hook が切り離した `agent-state watch` が数秒おきに見て、全部終わったら `done` にする (次のターンが始まればやめる。上限 6 時間)
 
 ### 利用制限
 

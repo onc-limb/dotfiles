@@ -35,9 +35,9 @@ STATE_DIR = os.path.expanduser("~/.local/state/agents")
 HOME = os.path.expanduser("~")
 DASHBOARD_TITLE = "◆ agents"
 # wezterm/tabs.lua appends the most urgent agent state to the tab title; drop it to get the tab's name
-TAB_STATE_SUFFIX = re.compile(r"\s+[💬⏳✅]$")
-ORDER = {"waiting": 0, "working": 1, "done": 2, "idle": 3}
-STATE_LABEL = {"waiting": "入力待ち", "working": "作業中", "done": "完了", "idle": "待機"}
+TAB_STATE_SUFFIX = re.compile(r"\s+[💬⏳👀✅]$")
+ORDER = {"waiting": 0, "working": 1, "watching": 2, "done": 3, "idle": 4}
+STATE_LABEL = {"waiting": "入力待ち", "working": "作業中", "watching": "監視中", "done": "完了", "idle": "待機"}
 TOOL_LABEL = {"claude": "Claude", "codex": "Codex"}
 WEEKDAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 REFRESH_SEC = 2
@@ -83,7 +83,7 @@ def refresh_palette():
     PAL.clear()
     PAL.update(DEFAULT_COLORS)
     PAL.update({k: v for k, v in data.items() if k in DEFAULT_COLORS and isinstance(v, str)})
-    STATE_COLOR.update({"waiting": PAL["warn"], "working": PAL["accent_text"], "done": PAL["ok"], "idle": PAL["muted"]})
+    STATE_COLOR.update({"waiting": PAL["warn"], "working": PAL["accent_text"], "watching": PAL["deco6"], "done": PAL["ok"], "idle": PAL["muted"]})
 
 
 RESET = "\033[0m"
@@ -571,7 +571,7 @@ def layout(workspace, envs, items, cursor, flat):
     all_states = [s.get("state") for e in envs for _, s in e["agents"]]
     # A banner across the width, painted with a gradient through the scheme's hues
     left = f"   ◆ {workspace or '?'}      作業環境 {n_envs}    エージェント {len(all_states)}"
-    right = "    ".join(f"{STATE_LABEL[st]} {all_states.count(st)}" for st in ("waiting", "working", "done"))
+    right = "    ".join(f"{STATE_LABEL[st]} {all_states.count(st)}" for st in ("waiting", "working", "watching", "done"))
     right += f"      {time.strftime('%H:%M:%S')}   "
     text = left + " " * max(1, avail - width(left) - width(right)) + right
     scr.blank()

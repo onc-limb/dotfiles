@@ -5,7 +5,7 @@
 -- - タブバーは「fancy」版を使い、本文の等幅フォントではなく UI 用の可変幅フォントで描く
 --   (ターミナルではなくアプリのタブ列に見せるため)
 -- - タブバーの地は本文より一段沈んだ色 (chrome)。アクティブなタブだけタブの色 (palette.tab_accent、紫系統) の札にする
--- - タブの右端の 💬 ⏳ ✅ は、そのタブで一番急ぎのエージェントの状態 (入力待ち > 作業中 > 完了)
+-- - タブの右端の 💬 ⏳ 👀 ✅ は、そのタブで一番急ぎのエージェントの状態 (入力待ち > 作業中 > 監視中 > 完了)
 -- - タブ名は format-tab-title では作らず、update-right-status (毎秒) から set_title で書き込む (M.refresh)。
 --   format-tab-title はペインのタイトルが変わるたびに全タブ分呼ばれ、そのたびに設定全体を Lua に変換するため、
 --   エージェントが多いと WezTerm のメインスレッドが埋まって固まる
@@ -17,9 +17,9 @@ local workspace = require("workspace")
 local M = {}
 
 local BRANCH = wezterm.nerdfonts.dev_git_branch
-local STATE_ORDER = { waiting = 1, working = 2, done = 3, idle = 4 }
+local STATE_ORDER = { waiting = 1, working = 2, watching = 3, done = 4, idle = 5 }
 -- タブの右端に出す、そのタブで一番急ぎのエージェントの状態
-local STATE_ICON = { waiting = "💬", working = "⏳", done = "✅" }
+local STATE_ICON = { waiting = "💬", working = "⏳", watching = "👀", done = "✅" }
 
 -- エージェントの状態ファイルは、タブを描くたびではなく 1 秒に 1 回だけ読む
 local agents_cache = { at = -1, agents = {} }

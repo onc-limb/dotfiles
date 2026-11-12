@@ -111,6 +111,9 @@ def cmd_launch(a):
     if not os.path.isdir(cwd):
         sys.exit(f"agent-spawn: no such directory: {cwd}")
     home = resolve_home(a.home)
+    # The agent that starts it (bin/agent-state keeps that one "watching" until this child is done)
+    caller = os.environ.get("WEZTERM_PANE", "")
+    parent = int(caller) if caller.isdigit() and int(caller) != home else None
     prompt = a.prompt
     if a.prompt_file:
         with open(a.prompt_file) as f:
@@ -141,7 +144,7 @@ def cmd_launch(a):
     # Count it as an agent of its home before its hooks write anything (as spawn_agent does)
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(state_path(pane), "w") as f:
-        json.dump({"tool": a.tool, "state": "idle", "pane": pane, "home": home, "cwd": cwd,
+        json.dump({"tool": a.tool, "state": "idle", "pane": pane, "home": home, "parent": parent, "cwd": cwd,
                    "updated_at": int(time.time())}, f, ensure_ascii=False)
     if not a.no_show:
         subprocess.run([os.path.join(BIN, "agent-view"), "show", str(pane), "--no-focus"],
