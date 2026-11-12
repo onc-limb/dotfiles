@@ -325,17 +325,21 @@ def collect():
 
 
 def quotas():
-    rows = []
+    """One rate-limit entry per tool: the work / private profiles are separate configs of the same account,
+    so they share the limits. The newest file of each tool wins."""
+    latest = {}
     try:
         names = sorted(os.listdir(STATE_DIR))
     except OSError:
-        return rows
+        return []
     for name in names:
         if name.startswith("quota-") and name.endswith(".json"):
             data = read_json(os.path.join(STATE_DIR, name))
             if data and isinstance(data.get("windows"), dict):
-                rows.append(data)
-    return rows
+                tool = data.get("tool")
+                if tool not in latest or (data.get("updated_at") or 0) > (latest[tool].get("updated_at") or 0):
+                    latest[tool] = data
+    return [latest[t] for t in sorted(latest)]
 
 
 # ---------------------------------------------------------------- formatting
@@ -424,7 +428,7 @@ def meter(pct, n):
 def quota_card(q, w):
     tool = TOOL_LABEL.get(q.get("tool"), q.get("tool", "?"))
     color = 2 if q.get("tool") == "claude" else 6
-    title = Line().add(tool, fg=ink(color), bold=True).add(f"  {q.get('profile', '')}", fg=ink(color))
+    title = Line().add(tool, fg=ink(color), bold=True)
     inner = w - 4
     body = []
     now = time.time()
