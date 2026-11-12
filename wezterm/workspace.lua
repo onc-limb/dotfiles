@@ -568,7 +568,7 @@ end
 function M.nvim_call(main_pane, name, ...)
 	local args = { string.format("'%s'", name) }
 	for _, v in ipairs({ ... }) do
-		table.insert(args, type(v) == "number" and tostring(v) or string.format("'%s'", v))
+		table.insert(args, type(v) == "number" and tostring(v) or string.format("'%s'", (tostring(v):gsub("'", "''"))))
 	end
 	local sock = string.format("%s/%d.sock", SOCKET_DIR, main_pane:pane_id())
 	local ok = wezterm.run_child_process({
@@ -592,6 +592,57 @@ local function in_workbench(window, pane, name, ...)
 	main:activate()
 	M.nvim_call(main, name, ...)
 	return true
+end
+
+-- LEADER+o: 画面の URL とファイルパスにラベルを出し、選んだものを開く。
+-- URL はブラウザ、ファイルは作業環境の nvim の真ん中 (行番号つきならその行)。作業環境でなければ既定のアプリ
+local LINK_PATTERNS = {
+	[=[\bhttps?://[^\s<>"'`)\]]+]=],
+	-- / を含むパス (~/ ./ ../ 始まりも)、または拡張子つきのファイル名。:行番号 (:列) つきも
+	[=[(?:~|\.{1,2})?/?[\w.\-@]+(?:/[\w.\-@]+)+(?::\d+)*]=],
+	[=[\b[\w\-]+\.[A-Za-z][A-Za-z0-9]{0,6}(?::\d+)*\b]=],
+}
+
+local function open_link(window, pane, text)
+	text = trim(text or ""):gsub("[.,;:]+$", "")
+	if text == "" then
+		return
+	end
+	if text:find("^https?://") then
+		wezterm.open_with(text)
+		return
+	end
+	local path, line = text:match("^(.-):(%d+)")
+	path = path or text
+	if path:sub(1, 2) == "~/" then
+		path = wezterm.home_dir .. path:sub(2)
+	elseif path:sub(1, 1) ~= "/" then
+		path = M.pane_cwd(pane):gsub("/+$", "") .. "/" .. path:gsub("^%./", "")
+	end
+	local f = io.open(path, "r")
+	if not f then
+		window:toast_notification("open", "見つかりません: " .. path, nil, 3000)
+		return
+	end
+	f:close()
+	local main = M.find_role_pane(window:active_tab(), "main")
+	if main then
+		main:activate()
+		M.nvim_call(main, "open_file", path, tonumber(line) or 0)
+	else
+		wezterm.open_with(path)
+	end
+end
+
+function M.open_link()
+	return act.QuickSelectArgs({
+		label = "open",
+		patterns = LINK_PATTERNS,
+		action = wezterm.action_callback(function(window, pane)
+			open_link(window, pane, window:get_selection_text_for_pane(pane))
+			window:perform_action(act.ClearSelection, pane)
+		end),
+	})
 end
 
 -- LEADER+c / LEADER+x: エージェントを起動して右の列の一番下に積み、フォーカスを移す

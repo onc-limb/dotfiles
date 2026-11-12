@@ -72,6 +72,19 @@ function M.editor()
 	vim.cmd("stopinsert")
 end
 
+-- WezTerm の LEADER o で選んだファイルを真ん中に開き、line 行目へ移る (line は 0 なら移らない)
+function M.open_file(path, line)
+	local win = center_win()
+	vim.api.nvim_set_current_win(win)
+	vim.cmd("stopinsert")
+	vim.cmd("edit " .. vim.fn.fnameescape(path))
+	line = tonumber(line) or 0
+	if line > 0 then
+		pcall(vim.api.nvim_win_set_cursor, win, { math.min(line, vim.api.nvim_buf_line_count(0)), 0 })
+		vim.cmd("normal! zz")
+	end
+end
+
 -- 終了したターミナルのバッファを片付け、表示していたウィンドウはファイルに戻す
 local function on_exit(buf)
 	if not vim.api.nvim_buf_is_valid(buf) then

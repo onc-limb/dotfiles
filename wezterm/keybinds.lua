@@ -167,6 +167,8 @@ return {
 
 		-- QuickSelect: 画面上のパス・URL・ハッシュ等をキーボードだけで選んでコピー
 		{ key = "f", mods = "LEADER", action = act.QuickSelect },
+		-- 画面の URL・ファイルパスを選んで開く (URL はブラウザ、ファイルは作業環境の nvim)
+		{ key = "o", mods = "LEADER", action = workspace.open_link() },
 		-- スクロールバック検索
 		{ key = "/", mods = "LEADER", action = act.Search({ CaseInSensitiveString = "" }) },
 		-- コマンドパレット
@@ -181,6 +183,26 @@ return {
 			action = act.ActivateKeyTable({ name = "activate_pane", timeout_milliseconds = 2000 }),
 		},
 	},
+	-- Cmd+クリックでリンクを開く。エージェント (Claude Code など) がマウスの入力を受け取っていても効くよう、
+	-- mouse_reporting = true の版も置く。押したときの入力はエージェントに渡さない
+	mouse_bindings = (function()
+		local bindings = {}
+		for _, reporting in ipairs({ false, true }) do
+			table.insert(bindings, {
+				event = { Up = { streak = 1, button = "Left" } },
+				mods = "SUPER",
+				mouse_reporting = reporting,
+				action = act.OpenLinkAtMouseCursor,
+			})
+			table.insert(bindings, {
+				event = { Down = { streak = 1, button = "Left" } },
+				mods = "SUPER",
+				mouse_reporting = reporting,
+				action = act.Nop,
+			})
+		end
+		return bindings
+	end)(),
 	-- キーテーブル
 	-- https://wezfurlong.org/wezterm/config/key-tables.html
 	key_tables = {
