@@ -101,7 +101,13 @@ def show(pane_id, focus=True):
     all_panes = panes()
     agent = all_panes.get(pane_id)
     home = home_of(pane_id)
-    if not agent or home not in all_panes:
+    if not agent:
+        return
+    if home not in all_panes:
+        # Started directly in a pane (no home): it already lives in its own tab, so just go there
+        if focus:
+            cli("activate-tab", "--tab-id", agent["tab_id"])
+            cli("activate-pane", "--pane-id", pane_id)
         return
     tab = all_panes[home]["tab_id"]
     # Every agent of this home, top to bottom of the column
