@@ -93,6 +93,16 @@ def set_hidden(home, hidden):
         pass
 
 
+def focused_pane():
+    """The pane the GUI is focused on (to put the focus back after moving panes around)."""
+    try:
+        result = cli("list-clients", "--format", "json")
+        clients = json.loads(result.stdout) if result.returncode == 0 else []
+        return clients[0].get("focused_pane_id") if clients else None
+    except (ValueError, subprocess.SubprocessError, OSError, IndexError):
+        return None
+
+
 def stash(pane_id):
     cli("move-pane-to-new-tab", "--pane-id", pane_id, "--new-window", "--workspace", STASH)
 
@@ -110,6 +120,8 @@ def show(pane_id, focus=True):
             cli("activate-pane", "--pane-id", pane_id)
         return
     tab = all_panes[home]["tab_id"]
+    # --no-focus: whatever the user is looking at stays (moving panes changes the active pane of the home tab)
+    previous = None if focus else focused_pane()
     # Every agent of this home, top to bottom of the column
     mine = sorted(p for p in all_panes if p != home and home_of(p) == home)
     missing = [p for p in mine if all_panes[p]["tab_id"] != tab]
@@ -136,7 +148,11 @@ def show(pane_id, focus=True):
         cli("activate-tab", "--tab-id", tab)
         cli("activate-pane", "--pane-id", pane_id)
     else:
+        # Keep the home pane active in its tab, then go back to the pane the user was on. activate-pane also
+        # activates the pane's tab, so without this an agent started in the background pulls the user to its tab
         cli("activate-pane", "--pane-id", home)
+        if previous is not None and previous != home and previous in all_panes:
+            cli("activate-pane", "--pane-id", previous)
     write_shown(home, pane_id)
 
 
