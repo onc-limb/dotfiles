@@ -142,15 +142,16 @@ return {
 		-- フォントサイズのリセット
 		{ key = "0", mods = "CTRL", action = act.ResetFontSize },
 
-		-- タブ切替 Cmd + 数字
-		{ key = "1", mods = "SUPER", action = act.ActivateTab(0) },
-		{ key = "2", mods = "SUPER", action = act.ActivateTab(1) },
-		{ key = "3", mods = "SUPER", action = act.ActivateTab(2) },
-		{ key = "4", mods = "SUPER", action = act.ActivateTab(3) },
-		{ key = "5", mods = "SUPER", action = act.ActivateTab(4) },
-		{ key = "6", mods = "SUPER", action = act.ActivateTab(5) },
-		{ key = "7", mods = "SUPER", action = act.ActivateTab(6) },
-		{ key = "8", mods = "SUPER", action = act.ActivateTab(7) },
+		-- タブ切替 Cmd + 数字。タブの番号は 0 から (tabs.lua)。0 はエージェント一覧タブ (Cmd+0)、
+		-- 作業環境は 1 から並ぶので、Cmd+N でタブバーの N 番のタブに移る。Cmd+9 は最後のタブ
+		{ key = "1", mods = "SUPER", action = act.ActivateTab(1) },
+		{ key = "2", mods = "SUPER", action = act.ActivateTab(2) },
+		{ key = "3", mods = "SUPER", action = act.ActivateTab(3) },
+		{ key = "4", mods = "SUPER", action = act.ActivateTab(4) },
+		{ key = "5", mods = "SUPER", action = act.ActivateTab(5) },
+		{ key = "6", mods = "SUPER", action = act.ActivateTab(6) },
+		{ key = "7", mods = "SUPER", action = act.ActivateTab(7) },
+		{ key = "8", mods = "SUPER", action = act.ActivateTab(8) },
 		{ key = "9", mods = "SUPER", action = act.ActivateTab(-1) },
 
 		-- エージェントを番号で選ぶ leader + 1..9 (タブバーの ① ② と同じ番号)

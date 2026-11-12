@@ -1,6 +1,6 @@
 -- 下のタブバーのタブの見た目 (左端のワークスペースの札は statusbar.lua)
 --
---    default   1: ◆ agents   2: dotfiles   main ⏳   3: app   feat-a 💬
+--    default   0: ◆ agents   1: dotfiles   main ⏳   2: app   feat-a 💬
 --
 -- - タブバーは「fancy」版を使い、本文の等幅フォントではなく UI 用の可変幅フォントで描く
 --   (ターミナルではなくアプリのタブ列に見せるため)
@@ -46,7 +46,7 @@ end
 -- worktree でも元のリポジトリ名を出すので、同じリポジトリの worktree はブランチで見分けられる。
 -- git の外ならディレクトリ名 (LEADER+n / Cmd+t で付けたタブ名)。
 -- それ以外 (エージェント一覧・素のシェル) は、タブ名が付いていればそれ、なければアクティブペインのタイトル。
--- 番号 (「1: 」) は WezTerm が付ける
+-- 番号 (「1: 」) は WezTerm が付ける (0 から。エージェント一覧タブが 0)
 local TITLE_WIDTH = 40
 local function tab_title(mux_tab, name)
 	if name == workspace.DASHBOARD_TITLE or workspace.is_dashboard(mux_tab) then
@@ -96,6 +96,8 @@ end
 
 function M.setup(config)
 	config.use_fancy_tab_bar = true
+	-- タブの番号を 0 から振る。エージェント一覧タブ (常に先頭) が 0 = Cmd+0、作業環境が 1, 2, … = Cmd+1, Cmd+2, …
+	config.tab_and_split_indices_are_zero_based = true
 	config.show_new_tab_button_in_tab_bar = false
 	-- タブの × は出さない (Cmd+w / LEADER X で閉じる)。この設定は 20240203 より後の版 (nightly) にしかなく、
 	-- 古い版で書くと設定ごと読み込めなくなるので、版を見てから設定する
