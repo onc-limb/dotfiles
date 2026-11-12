@@ -280,10 +280,9 @@ local function adjust_pane(pane_id, amount, direction)
 	cli("adjust-pane-size", "--pane-id", tostring(pane_id), "--amount", tostring(amount), direction)
 end
 
--- 右の列のエージェントの高さを等分する。列は agent-view が一番下のエージェントを分割して積むので、
--- 上から順にそのエージェントをアクティブにして下の境界を動かし (動かすたびに高さを読み直す)、最後にフォーカスを戻す
+-- 列のエージェントの高さを等分する。列は agent-view が一番下のエージェントを分割して積むので、
+-- 上から順にそのエージェントをアクティブにして下の境界を動かす (動かすたびに高さを読み直す)。フォーカスは呼んだ側が戻す
 local function equalize_column(tab, ids)
-	local active = tab:active_pane()
 	for i = 1, #ids - 1 do
 		local heights = {}
 		for _, info in ipairs(tab:panes_with_info()) do
@@ -299,44 +298,102 @@ local function equalize_column(tab, ids)
 			adjust_pane(ids[i], math.abs(delta), delta > 0 and "Down" or "Up")
 		end
 	end
-	if active and tab:active_pane():pane_id() ~= active:pane_id() then
-		cli("activate-pane", "--pane-id", tostring(active:pane_id()))
+end
+
+-- 作業環境の実際のレイアウト: nvim の workbench_layout が tree (ファイルなし) か Cmd+Shift+a で広げていれば tree、
+-- それ以外は edit。tree では子エージェント (agent-spawn で起動した) を右の別の列に出し、edit では隠す (bin/agent-view)
+function M.effective_layout(tab, main)
+	if (main:get_user_vars().workbench_layout or "") == "tree" or is_wide(tab) then
+		return "tree"
 	end
+	return "edit"
+end
+
+-- レイアウトが変わったら、bin/agent-view が読む layout-<main> に書き、子エージェントを出す / 隠す
+function M.sync_agents(tab)
+	local main = M.find_role_pane(tab, "main")
+	if not main then
+		return
+	end
+	local layout = M.effective_layout(tab, main)
+	local path = state_file("layout", main)
+	local f = io.open(path, "r")
+	local old = f and f:read("*l")
+	if f then
+		f:close()
+	end
+	if old == layout then
+		return
+	end
+	os.execute("mkdir -p " .. shell_quote(statusbar.state_dir))
+	f = io.open(path, "w")
+	if f then
+		f:write(layout)
+		f:close()
+	end
+	agent_view("sync", main:pane_id())
+end
+
+-- 子エージェント (起動したエージェントのペインが生きている) か
+local function is_child(agent)
+	if not agent.parent then
+		return false
+	end
+	local ok, p = pcall(wezterm.mux.get_pane, agent.parent)
+	return ok and p ~= nil
 end
 
 -- nvim とエージェントの列の幅を、nvim が知らせる workbench_layout と Cmd+Shift+a の切り替えに合わせ、列の高さを等分する。
+-- 列は 1 つ (メインのエージェント) か 2 つ (右に子エージェント)。2 つのときはエージェントの幅を半分ずつにする。
 -- 合わせたあとに手で大きさを変えても戻さないよう、(layout, Cmd+Shift+a の切り替え, 列のエージェント, 全体の大きさ)
 -- が変わったときだけ合わせる
 local applied = {}
 function M.apply_layout(tab)
 	local infos = tab:panes_with_info()
-	local main, column = nil, {}
+	local main, agents = nil, {}
 	for _, info in ipairs(infos) do
 		local role = role_of(info.pane)
 		if role == "main" then
 			main = info
 		elseif role == "agent" then
-			table.insert(column, info)
+			table.insert(agents, info)
 		end
 	end
-	-- nvim と、その右に縦に積んだエージェントだけのタブ
-	if not main or #column == 0 or #infos ~= #column + 1 then
+	-- nvim と、その右に縦に積んだエージェントの列だけのタブ
+	if not main or #agents == 0 or #infos ~= #agents + 1 then
 		return
 	end
-	table.sort(column, function(a, b)
-		return a.top < b.top
-	end)
-	local left, width = column[1].left, column[1].width
-	if left <= main.left or column[1].top ~= main.top then
+	local by_left, lefts = {}, {}
+	for _, info in ipairs(agents) do
+		if not by_left[info.left] then
+			by_left[info.left] = {}
+			table.insert(lefts, info.left)
+		end
+		table.insert(by_left[info.left], info)
+	end
+	table.sort(lefts)
+	if #lefts > 2 or lefts[1] <= main.left then
 		return
 	end
-	local ids, height = {}, #column - 1
-	for _, info in ipairs(column) do
-		if info.left ~= left or info.width ~= width then
+	local columns, sig, height = {}, {}, 0
+	for _, left in ipairs(lefts) do
+		local col = by_left[left]
+		table.sort(col, function(a, b)
+			return a.top < b.top
+		end)
+		if col[1].top ~= main.top then
 			return
 		end
-		table.insert(ids, info.pane:pane_id())
-		height = height + info.height
+		local ids = {}
+		for _, info in ipairs(col) do
+			if info.width ~= col[1].width then
+				return
+			end
+			table.insert(ids, info.pane:pane_id())
+			height = height + info.height
+		end
+		table.insert(columns, { ids = ids, width = col[1].width, top = col[1].pane:pane_id() })
+		table.insert(sig, table.concat(ids, ","))
 	end
 	-- 高さをそろえるときにペインをアクティブにするので、見ているタブだけ合わせる (ほかのタブは開いたときに合わせる)
 	local window = tab:window()
@@ -344,10 +401,13 @@ function M.apply_layout(tab)
 	if not (current and current:tab_id() == tab:tab_id()) then
 		return
 	end
-	local total = main.width + width + 1
+	local total = main.width + #columns
+	for _, col in ipairs(columns) do
+		total = total + col.width
+	end
 	local layout = main.pane:get_user_vars().workbench_layout or ""
 	local wide = is_wide(tab)
-	local key = string.format("%s:%s:%s:%d:%d", layout, tostring(wide), table.concat(ids, ","), total, height)
+	local key = string.format("%s:%s:%s:%d:%d", layout, tostring(wide), table.concat(sig, "|"), total, height)
 	if applied[tab:tab_id()] == key then
 		return
 	end
@@ -358,14 +418,32 @@ function M.apply_layout(tab)
 	else
 		target = math.max(MAIN_MIN_COLS, total - 1 - math.max(AGENT_MIN_COLS, math.floor(total * AGENT_RATIO)))
 	end
-	-- 狭いウィンドウでもエージェントに 20 セルは残す
-	target = math.max(1, math.min(target, total - 1 - 20))
+	-- 狭いウィンドウでもエージェントに 20 セルずつは残す
+	target = math.max(1, math.min(target, total - #columns * 21))
+	local active = tab:active_pane()
+	-- 境界が 2 本あると、動くのはアクティブなペインに近い境界なので、動かす境界のペインをアクティブにしてから動かす。
+	-- nvim と列の境界: nvim を Left で縮め、Right で広げる
 	local delta = main.width - target
-	-- 左右の境界は nvim と列のあいだにしかないので、どのペインがアクティブでも同じ境界が動く
 	if delta ~= 0 then
+		cli("activate-pane", "--pane-id", tostring(main.pane:pane_id()))
 		adjust_pane(main.pane:pane_id(), math.abs(delta), delta > 0 and "Left" or "Right")
 	end
-	equalize_column(tab, ids)
+	-- メインの列と子の列の境界: 子の列を Left で広げ、Right で縮める (残りを半分ずつ)
+	if #columns == 2 then
+		local area = total - target - 1
+		local want = area - 1 - math.floor((area - 1) / 2)
+		local d2 = want - columns[2].width
+		if d2 ~= 0 then
+			cli("activate-pane", "--pane-id", tostring(columns[2].top))
+			adjust_pane(columns[2].top, math.abs(d2), d2 > 0 and "Left" or "Right")
+		end
+	end
+	for _, col in ipairs(columns) do
+		equalize_column(tab, col.ids)
+	end
+	if active and tab:active_pane():pane_id() ~= active:pane_id() then
+		cli("activate-pane", "--pane-id", tostring(active:pane_id()))
+	end
 end
 
 -- 作業環境のタブのエージェントが右の列にそろっていなければ、残りを列に積み (フォーカスは移さない)、
@@ -381,9 +459,11 @@ function M.ensure_agent_shown(window)
 	for _, p in ipairs(tab:panes()) do
 		in_tab[p:pane_id()] = true
 	end
+	-- ファイルを開いている (edit) あいだは、子エージェントは隠しておく
+	local edit = M.effective_layout(tab, main) == "edit"
 	local missing = nil
 	for _, item in ipairs(statusbar.agents_in_tab(tab)) do
-		if item.agent.home == main:pane_id() and not in_tab[item.pane:pane_id()] then
+		if item.agent.home == main:pane_id() and not in_tab[item.pane:pane_id()] and not (edit and is_child(item.agent)) then
 			missing = missing or item
 		end
 	end
@@ -736,6 +816,7 @@ function M.toggle_agent_wide()
 		local tabs = wide_tabs()
 		tabs[id] = not tabs[id] or nil
 		wezterm.GLOBAL.agent_wide = tabs
+		M.sync_agents(tab)
 		local agents = statusbar.agents_in_tab(tab)
 		if #agents > 0 and not shown_index(tab, agents) then
 			local target, last = agents[1], last_shown(M.home_pane(tab, pane))

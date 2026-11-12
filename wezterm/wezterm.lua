@@ -80,6 +80,7 @@ wezterm.on("user-var-changed", function(_, pane, name)
 	if name == "workbench_layout" then
 		local tab = pane:tab()
 		if tab then
+			workspace.sync_agents(tab)
 			workspace.apply_layout(tab)
 		end
 	end
