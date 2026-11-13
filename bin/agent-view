@@ -175,10 +175,28 @@ def arrange(home, all_panes, requested=None):
             elif i == 0:
                 cli("split-pane", "--pane-id", home, "--right", "--percent", 40, "--move-pane-id", p)
             else:
-                # A full-height column at the right edge of the tab
-                cli("split-pane", "--pane-id", home, "--top-level", "--right", "--percent", 30, "--move-pane-id", p)
+                new_top_level_column(home, p)
             column.append(p)
     return stashed
+
+
+def new_top_level_column(home, pane_id):
+    """Move the pane into a full-height column at the right edge of the tab.
+
+    `split-pane --top-level --move-pane-id` corrupts the split tree (WezTerm 20261026): the moved pane keeps
+    the size it had in the hidden workspace, the panes overlap, and once it is closed the other panes no
+    longer reach the right edge (a blank strip stays there until the window is resized). A top-level split
+    that starts a new placeholder pane sizes correctly, and so does a plain split with --move-pane-id, so
+    make the column with a placeholder, move the pane under it and close the placeholder."""
+    result = cli("split-pane", "--pane-id", home, "--top-level", "--right", "--percent", 30,
+                 "--", "/bin/sleep", "60")
+    placeholder = result.stdout.strip()
+    if result.returncode != 0 or not placeholder.isdigit():
+        return
+    try:
+        cli("split-pane", "--pane-id", placeholder, "--bottom", "--percent", 50, "--move-pane-id", pane_id)
+    finally:
+        cli("kill-pane", "--pane-id", placeholder)
 
 
 def restore_focus(previous, home, all_panes, stashed):

@@ -202,6 +202,9 @@ nvim 側:
 - エージェントの出し入れは `wezterm cli split-pane --move-pane-id`（タブへ）と
   `move-pane-to-new-tab --new-window --workspace _agents`（見えないワークスペースへ）。Lua にはペインを
   別のタブへ移す API がないので、`bin/agent-view` が CLI で行い、WezTerm・一覧タブから呼ぶ
+- 子エージェントの列 (タブの右端) は `split-pane --top-level --move-pane-id` で作らない。WezTerm 20261026 では
+  移したペインが見えないワークスペースでの大きさのまま入って分割の大きさが壊れ、閉じたあと右に空白が残る。
+  `bin/agent-view` は `--top-level` で仮のペインを作り、その下に `--move-pane-id` で移してから仮のペインを閉じる
 - 列に積むときは一番下のエージェントを分割する。高さの等分は `workspace.apply_layout` が `adjust-pane-size` で行う。
   `adjust-pane-size` は `--pane-id` のペインではなくタブのアクティブなペインの境界を動かすので、
   上から順にエージェントをアクティブにして下の境界を動かし、最後にフォーカスを戻す
