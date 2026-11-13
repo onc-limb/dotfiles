@@ -205,6 +205,9 @@ nvim 側:
 - 子エージェントの列 (タブの右端) は `split-pane --top-level --move-pane-id` で作らない。WezTerm 20261026 では
   移したペインが見えないワークスペースでの大きさのまま入って分割の大きさが壊れ、閉じたあと右に空白が残る。
   `bin/agent-view` は `--top-level` で仮のペインを作り、その下に `--move-pane-id` で移してから仮のペインを閉じる
+- `bin/agent-view` は `~/.local/state/agents/view.lock` で 1 つずつ動き、実行中は `view-busy` に開始時刻を書く。
+  WezTerm の毎秒の `ensure_agent_shown` / `apply_layout` は、自分で起動したものに加えてこれも見て、実行中なら次の秒に回す
+  (`bin/agent-spawn` から呼ばれた agent-view と並んでペインを動かさないため)
 - 列に積むときは一番下のエージェントを分割する。高さの等分は `workspace.apply_layout` が `adjust-pane-size` で行う。
   `adjust-pane-size` は `--pane-id` のペインではなくタブのアクティブなペインの境界を動かすので、
   上から順にエージェントをアクティブにして下の境界を動かし、最後にフォーカスを戻す

@@ -233,8 +233,23 @@ end
 -- (wez/wezterm#4737 系)。毎秒の自動の処理は、実行中なら何もせず次の秒に回す。
 -- 途中で失敗して数が戻らなくても固まらないよう、BUSY_SEC を過ぎたら実行中とみなさない
 local BUSY_SEC = 15
+-- WezTerm の外から起動した bin/agent-view (bin/agent-spawn・一覧タブ) の実行中は、このファイルに開始時刻がある
+local VIEW_BUSY_FILE = statusbar.state_dir .. "/view-busy"
+local function view_busy()
+	local f = io.open(VIEW_BUSY_FILE, "r")
+	if not f then
+		return false
+	end
+	local started = tonumber(f:read("*l") or "")
+	f:close()
+	return started ~= nil and os.time() - started < BUSY_SEC
+end
+
 local function panes_busy()
-	return (wezterm.GLOBAL.panes_busy or 0) > 0 and os.time() - (wezterm.GLOBAL.panes_busy_at or 0) < BUSY_SEC
+	if (wezterm.GLOBAL.panes_busy or 0) > 0 and os.time() - (wezterm.GLOBAL.panes_busy_at or 0) < BUSY_SEC then
+		return true
+	end
+	return view_busy()
 end
 
 local function with_panes_busy(fn)

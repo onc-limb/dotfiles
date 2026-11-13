@@ -21,6 +21,8 @@ Main agents (started by you) and child agents (started by an agent with bin/agen
 "parent") are kept apart: with no file open in nvim (layout "tree", written to layout-<home> by WezTerm)
 the children get their own column right of the main agents; with a file open ("edit") they are put away.
 """
+import contextlib
+import fcntl
 import json
 import os
 import shutil
@@ -30,6 +32,8 @@ import time
 
 STATE_DIR = os.path.expanduser("~/.local/state/agents")
 STASH = "_agents"
+# Exists while an agent-view moves panes (same name as wezterm/workspace.lua VIEW_BUSY_FILE)
+BUSY_FILE = os.path.join(STATE_DIR, "view-busy")
 
 
 def wezterm():
@@ -258,6 +262,32 @@ def hide(pane_id):
         cli("activate-pane", "--pane-id", home)
 
 
+@contextlib.contextmanager
+def moving_panes():
+    """Run one agent-view at a time, and mark it as running for WezTerm.
+
+    agent-view is started from WezTerm's Lua (LEADER+c, the once-a-second ensure_agent_shown) and from
+    outside it (bin/agent-spawn, bin/agent-dashboard). Two of them arranging the same tab from their own
+    snapshot of the panes would move the same agent twice, so they take a lock and read the panes after it.
+    While one runs, BUSY_FILE holds its start time: wezterm/workspace.lua panes_busy() reads it and skips
+    its once-a-second ensure_agent_shown / apply_layout (it only counts the agent-views it started itself)."""
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(os.path.join(STATE_DIR, "view.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with open(BUSY_FILE, "w") as f:
+                f.write(str(int(time.time())))
+        except OSError:
+            pass
+        try:
+            yield
+        finally:
+            try:
+                os.remove(BUSY_FILE)
+            except OSError:
+                pass
+
+
 def main():
     args = sys.argv[1:]
     no_focus = "--no-focus" in args
@@ -265,12 +295,13 @@ def main():
     if len(args) != 2 or args[0] not in ("show", "hide", "sync") or not args[1].isdigit():
         print(__doc__, file=sys.stderr)
         return 2
-    if args[0] == "show":
-        show(int(args[1]), focus=not no_focus)
-    elif args[0] == "sync":
-        sync(int(args[1]))
-    else:
-        hide(int(args[1]))
+    with moving_panes():
+        if args[0] == "show":
+            show(int(args[1]), focus=not no_focus)
+        elif args[0] == "sync":
+            sync(int(args[1]))
+        else:
+            hide(int(args[1]))
     return 0
 
 
