@@ -227,9 +227,32 @@ function M.spawn_agent(home, tool, session_id, cwd)
 	return pane
 end
 
+-- ペインを動かす / アクティブにする処理 (agent-view・apply_layout) の実行中の数と、最後に始めた時刻。
+-- run_child_process は yield するので、キー操作と毎秒の update-status の処理が並んで走る。
+-- 並んで別々のペインを activate すると、WezTerm のフォーカスが 2 つのペインの間で往復し続けて固まる
+-- (wez/wezterm#4737 系)。毎秒の自動の処理は、実行中なら何もせず次の秒に回す。
+-- 途中で失敗して数が戻らなくても固まらないよう、BUSY_SEC を過ぎたら実行中とみなさない
+local BUSY_SEC = 15
+local function panes_busy()
+	return (wezterm.GLOBAL.panes_busy or 0) > 0 and os.time() - (wezterm.GLOBAL.panes_busy_at or 0) < BUSY_SEC
+end
+
+local function with_panes_busy(fn)
+	wezterm.GLOBAL.panes_busy = (panes_busy() and wezterm.GLOBAL.panes_busy or 0) + 1
+	wezterm.GLOBAL.panes_busy_at = os.time()
+	local ok, err = pcall(fn)
+	wezterm.GLOBAL.panes_busy = math.max(0, (wezterm.GLOBAL.panes_busy or 1) - 1)
+	if not ok then
+		wezterm.log_error(err)
+	end
+end
+
 -- bin/agent-view show / hide を呼ぶ (エージェントをタブの右の列に積む / 見えないワークスペースに戻す)
 local function agent_view(cmd, pane_id, ...)
-	wezterm.run_child_process({ BIN .. "/agent-view", cmd, tostring(pane_id), ... })
+	local args = { BIN .. "/agent-view", cmd, tostring(pane_id), ... }
+	with_panes_busy(function()
+		wezterm.run_child_process(args)
+	end)
 end
 
 -- タブに出ているエージェントを見えないワークスペースに戻す
@@ -348,6 +371,7 @@ end
 -- 合わせたあとに手で大きさを変えても戻さないよう、(layout, Cmd+Shift+a の切り替え, 列のエージェント, 全体の大きさ)
 -- が変わったときだけ合わせる
 local applied = {}
+local resize_layout
 function M.apply_layout(tab)
 	local infos = tab:panes_with_info()
 	local main, agents = nil, {}
@@ -411,7 +435,18 @@ function M.apply_layout(tab)
 	if applied[tab:tab_id()] == key then
 		return
 	end
+	-- ほかの処理がペインを動かしている最中は合わせない (key を覚えないので、次の秒に合わせ直す)
+	if panes_busy() then
+		return
+	end
 	applied[tab:tab_id()] = key
+	with_panes_busy(function()
+		resize_layout(tab, main, columns, total, layout, wide)
+	end)
+end
+
+-- apply_layout の本体: nvim と列の境界、2 つの列の境界を動かし、列の高さを等分して、フォーカスを戻す
+resize_layout = function(tab, main, columns, total, layout, wide)
 	local target
 	if layout == "tree" or wide then
 		target = TREE_COLS
@@ -421,11 +456,14 @@ function M.apply_layout(tab)
 	-- 狭いウィンドウでもエージェントに 20 セルずつは残す
 	target = math.max(1, math.min(target, total - #columns * 21))
 	local active = tab:active_pane()
+	-- nvim と列の境界: nvim を Left で縮め、Right で広げる。
 	-- 境界が 2 本あると、動くのはアクティブなペインに近い境界なので、動かす境界のペインをアクティブにしてから動かす。
-	-- nvim と列の境界: nvim を Left で縮め、Right で広げる
+	-- 列が 1 つなら左右の境界は 1 本だけで、どのペインがアクティブでも同じ境界が動くので、フォーカスは動かさない
 	local delta = main.width - target
 	if delta ~= 0 then
-		cli("activate-pane", "--pane-id", tostring(main.pane:pane_id()))
+		if #columns == 2 then
+			cli("activate-pane", "--pane-id", tostring(main.pane:pane_id()))
+		end
 		adjust_pane(main.pane:pane_id(), math.abs(delta), delta > 0 and "Left" or "Right")
 	end
 	-- メインの列と子の列の境界: 子の列を Left で広げ、Right で縮める (残りを半分ずつ)
@@ -450,6 +488,10 @@ end
 -- 大きさを合わせる (update-status から毎秒呼ばれる。復旧したタブ・エージェント一覧から起動したエージェント用)。
 -- LEADER z で隠したタブには出さない
 function M.ensure_agent_shown(window)
+	-- LEADER+c などでエージェントを出している最中は、まだタブにいないエージェントを重ねて出さない
+	if panes_busy() then
+		return
+	end
 	local tab = window:active_tab()
 	local main = tab and M.find_role_pane(tab, "main")
 	if not main then
@@ -728,10 +770,14 @@ end
 -- LEADER+c / LEADER+x: エージェントを起動して右の列の一番下に積み、フォーカスを移す
 function M.launch_agent(tool)
 	return wezterm.action_callback(function(window, pane)
-		local tab = window:active_tab()
-		local home = M.home_pane(tab, pane)
-		local agent = M.spawn_agent(home, tool)
-		agent_view("show", agent:pane_id())
+		-- 状態ファイルを書いた時点から、毎秒の ensure_agent_shown にはまだタブにいないエージェントに見えるので、
+		-- 起動から列に積み終わるまでを実行中にしておく
+		with_panes_busy(function()
+			local tab = window:active_tab()
+			local home = M.home_pane(tab, pane)
+			local agent = M.spawn_agent(home, tool)
+			agent_view("show", agent:pane_id())
+		end)
 	end)
 end
 
