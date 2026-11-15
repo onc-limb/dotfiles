@@ -24,6 +24,8 @@ config.freetype_load_target = "Light"
 -- (タブバーの UI フォントが滑らかに見えるのと同じ描き方)
 config.freetype_load_flags = "NO_HINTING"
 config.use_ime = true
+-- 変換中 (網掛け) の Ctrl+h などを IME に渡す (既定は SHIFT だけで、Ctrl 付きのキーは IME を素通りしてアプリに届く)
+config.macos_forward_to_ime_modifier_mask = "SHIFT|CTRL"
 -- 背景は透過させずに塗りつぶす (デスクトップアプリ風)。配色は LEADER+Shift+b、ライト / ダークは LEADER+b (theme.lua)
 require("theme").setup(config)
 config.audible_bell = "SystemBeep"
