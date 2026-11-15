@@ -90,11 +90,28 @@ return {
 				end,
 			})
 
+			-- マクロ記録中の表示 (cmdheight = 0 だと「recording @q」がコマンド行に出ず気づけないため)。
+			-- 記録中は nvim-autopairs も止まる (disable_in_macro) ので、誤って q を押したときの手がかりにもなる
+			local function macro_recording()
+				local reg = vim.fn.reg_recording()
+				return reg ~= "" and ("recording @" .. reg) or ""
+			end
+			-- 開始・終了の直後に表示を更新する (RecordingLeave の時点では reg_recording() がまだ値を返すので後回しにする)
+			vim.api.nvim_create_autocmd({ "RecordingEnter", "RecordingLeave" }, {
+				callback = function()
+					vim.schedule(function()
+						require("lualine").refresh({ place = { "statusline" }, force = true })
+					end)
+				end,
+			})
+
 			return {
 				options = {
 					theme = "vscode", -- vscode.nvim が提供する lualine テーマ
 				},
 				sections = {
+					-- モード表示の隣にマクロ記録中を出す (目立つ位置に置く)
+					lualine_a = { "mode", macro_recording },
 					-- 既定は { "branch", "diff", "diagnostics" }。branch だけ cwd 基準の自作に差し替え
 					lualine_b = { { cwd_branch, icon = "" }, "diff", "diagnostics" },
 					-- path = 1: ファイル名だけでなく cwd からの相対パスで表示 (同名ファイルの区別のため)
