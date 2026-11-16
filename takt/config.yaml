@@ -2,6 +2,12 @@ language: ja
 
 # provider / model live in runtime.yaml (mixing them here is a hard error).
 
+# Runs happen unattended: keep the Mac awake and open a PR when a task completes
+# (humans only decide whether to merge).
+prevent_sleep: true
+auto_pr: true
+draft_pr: false
+
 # Record phase-level usage locally to measure cost before tuning models.
 observability:
   enabled: true
