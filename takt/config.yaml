@@ -1,0 +1,8 @@
+language: ja
+
+# provider / model live in runtime.yaml (mixing them here is a hard error).
+
+# Record phase-level usage locally to measure cost before tuning models.
+observability:
+  enabled: true
+  usage_events_phase: true

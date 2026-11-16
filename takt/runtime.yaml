@@ -1,0 +1,27 @@
+version: 1
+
+# Provider / model routing for TAKT (global layer; a project's .takt/runtime.yaml wins
+# where it defines the same section — defaults/targets are replaced wholesale).
+# Start all-Claude to measure flow and usage first; add a codex profile for `coder` later.
+provider:
+  profiles:
+    claude-opus:
+      provider: claude-sdk
+      model: opus
+    claude-sonnet:
+      provider: claude-sdk
+      model: sonnet
+
+  # Reviewers and internal agents (selector, assistant, judges) fall back to this.
+  defaults:
+    profile: claude-sonnet
+
+  # Assign by persona, not step name, so custom workflows reuse the routing.
+  targets:
+    personas:
+      planner:
+        profile: claude-opus
+      review-adjudicator:
+        profile: claude-opus
+      supervisor:
+        profile: claude-opus

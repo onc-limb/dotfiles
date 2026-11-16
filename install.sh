@@ -73,6 +73,13 @@ main() {
     create_link "$DOTFILES_DIR/zed/settings.json" "$HOME/.config/zed/settings.json"
     create_link "$DOTFILES_DIR/zed/keymap.json" "$HOME/.config/zed/keymap.json"
 
+    # TAKT configuration (~/.takt には SDK 本体や manager の状態も入るため中身を個別にリンク)
+    # workflows/・steps/・facet-pools 等は TAKT が symlink を拒否するのでリンクしない
+    # （workflows/ がリンクだと builtin を含む全ワークフローが読めなくなる。ワークフローはプロジェクトの .takt/ に置く）
+    create_link "$DOTFILES_DIR/takt/config.yaml" "$HOME/.takt/config.yaml"
+    create_link "$DOTFILES_DIR/takt/runtime.yaml" "$HOME/.takt/runtime.yaml"
+    create_link "$DOTFILES_DIR/takt/facets" "$HOME/.takt/facets"
+
     # Claude Code configuration (selective symlinks to ~/.claude/)
     create_link "$DOTFILES_DIR/claude/home/settings.json" "$HOME/.claude/settings.json"
     create_link "$DOTFILES_DIR/claude/home/keybindings.json" "$HOME/.claude/keybindings.json"
