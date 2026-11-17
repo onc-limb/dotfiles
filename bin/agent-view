@@ -169,38 +169,29 @@ def arrange(home, all_panes, requested=None):
     stashed = [p for p in in_tab if p not in keep[0] and p not in keep[1]]
     for p in stashed:
         stash(p)
+    # The children's column is made by splitting the top main agent to the right, while it is alone in its
+    # column, so both columns run the full height. `split-pane --top-level` is not used: in WezTerm 20261026,
+    # once a pane made by a top-level split is closed or moved away, the tab keeps its old size for the split
+    # tree, and every later split uses it (the panes add up wider than the window and run off its right
+    # edge until the window is resized). So when the children's column is new, put the main agents below the
+    # top one away for a moment and stack them again after the children's column is there.
+    if want[1] and not keep[1] and len(keep[0]) > 1:
+        for p in keep[0][1:]:
+            stash(p)
+        keep[0] = keep[0][:1]
     # The sizes are set by wezterm/workspace.lua apply_layout
+    if want[0] and not keep[0]:
+        cli("split-pane", "--pane-id", home, "--right", "--percent", 40, "--move-pane-id", want[0][0])
+        keep[0].append(want[0][0])
+    if want[1] and not keep[1]:
+        cli("split-pane", "--pane-id", keep[0][0], "--right", "--percent", 50, "--move-pane-id", want[1][0])
+        keep[1].append(want[1][0])
     for i, column in enumerate(keep):
         for p in want[i]:
-            if p in column:
-                continue
-            if column:
+            if p not in column:
                 cli("split-pane", "--pane-id", column[-1], "--bottom", "--percent", 50, "--move-pane-id", p)
-            elif i == 0:
-                cli("split-pane", "--pane-id", home, "--right", "--percent", 40, "--move-pane-id", p)
-            else:
-                new_top_level_column(home, p)
-            column.append(p)
+                column.append(p)
     return stashed
-
-
-def new_top_level_column(home, pane_id):
-    """Move the pane into a full-height column at the right edge of the tab.
-
-    `split-pane --top-level --move-pane-id` corrupts the split tree (WezTerm 20261026): the moved pane keeps
-    the size it had in the hidden workspace, the panes overlap, and once it is closed the other panes no
-    longer reach the right edge (a blank strip stays there until the window is resized). A top-level split
-    that starts a new placeholder pane sizes correctly, and so does a plain split with --move-pane-id, so
-    make the column with a placeholder, move the pane under it and close the placeholder."""
-    result = cli("split-pane", "--pane-id", home, "--top-level", "--right", "--percent", 30,
-                 "--", "/bin/sleep", "60")
-    placeholder = result.stdout.strip()
-    if result.returncode != 0 or not placeholder.isdigit():
-        return
-    try:
-        cli("split-pane", "--pane-id", placeholder, "--bottom", "--percent", 50, "--move-pane-id", pane_id)
-    finally:
-        cli("kill-pane", "--pane-id", placeholder)
 
 
 def restore_focus(previous, home, all_panes, stashed):

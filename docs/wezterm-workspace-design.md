@@ -202,9 +202,12 @@ nvim 側:
 - エージェントの出し入れは `wezterm cli split-pane --move-pane-id`（タブへ）と
   `move-pane-to-new-tab --new-window --workspace _agents`（見えないワークスペースへ）。Lua にはペインを
   別のタブへ移す API がないので、`bin/agent-view` が CLI で行い、WezTerm・一覧タブから呼ぶ
-- 子エージェントの列 (タブの右端) は `split-pane --top-level --move-pane-id` で作らない。WezTerm 20261026 では
-  移したペインが見えないワークスペースでの大きさのまま入って分割の大きさが壊れ、閉じたあと右に空白が残る。
-  `bin/agent-view` は `--top-level` で仮のペインを作り、その下に `--move-pane-id` で移してから仮のペインを閉じる
+- 子エージェントの列 (タブの右端) は `split-pane --top-level` で作らない。WezTerm 20261026 では、`--top-level` で
+  作ったペインを閉じる / 移すと、タブが分割の大きさを古いまま持ち、そのあとの分割がすべてその大きさで分ける
+  (ペインの幅の合計がウィンドウより広くなって右端がはみ出す。ウィンドウの大きさを変えるまで直らず、ズームや
+  `adjust-pane-size` でも直らない)。`bin/agent-view` は、メインのエージェントの列の一番上のペインを `--right` で
+  分割して子エージェントの列を作る。その列が新しいときは、一番上より下のメインのエージェントを一度しまい、
+  子エージェントの列を作ってから積み直す (どちらの列も上から下まで届くように)
 - `bin/agent-view` は `~/.local/state/agents/view.lock` で 1 つずつ動き、実行中は `view-busy` に開始時刻を書く。
   WezTerm の毎秒の `ensure_agent_shown` / `apply_layout` は、自分で起動したものに加えてこれも見て、実行中なら次の秒に回す
   (`bin/agent-spawn` から呼ばれた agent-view と並んでペインを動かさないため)
