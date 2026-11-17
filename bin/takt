@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Wrapper around the real `takt` that hands agora's design knowledge to TAKT.
+#
+# TAKT reads policies only as files and checks them when it loads a workflow,
+# so the knowledge has to be on disk before `takt run` starts. In a project
+# that opts in with .takt/agora.conf, this wrapper writes
+# .takt/facets/policies/agora-design.md from `agora knowledge show` right
+# before `takt run` / `takt watch`, then runs the real takt. Everywhere else it
+# only passes through.
+#
+# .takt/agora.conf (KEY=VALUE, all optional):
+#   lang=typescript   # passed to `agora knowledge show --lang` (omit: all languages)
+#   scene=verify      # passed to `--scene` (default: verify)
+#
+# The generated file is a cache; agora's core/ stays the only source. It is
+# added to .git/info/exclude unless the project already ignores it.
+# The `agora-default` workflow that uses the policy is in dotfiles takt/workflows/.
+set -euo pipefail
+
+self="$(realpath "$0")"
+real=""
+IFS=: read -r -a path_dirs <<< "$PATH"
+for dir in "${path_dirs[@]}"; do
+  candidate="$dir/takt"
+  if [[ -x "$candidate" && "$(realpath "$candidate")" != "$self" ]]; then
+    real="$candidate"
+    break
+  fi
+done
+if [[ -z "$real" ]]; then
+  echo "takt wrapper: the real takt was not found in PATH" >&2
+  exit 127
+fi
+
+conf=".takt/agora.conf"
+case "${1:-}" in
+  run | watch) ;;
+  *) exec "$real" "$@" ;;
+esac
+[[ -f "$conf" ]] || exec "$real" "$@"
+
+lang=""
+scene="verify"
+while IFS='=' read -r key value; do
+  key="${key//[[:space:]]/}"
+  value="${value%%#*}"
+  value="${value//[[:space:]]/}"
+  case "$key" in
+    '' | \#*) ;;
+    lang) lang="$value" ;;
+    scene) scene="$value" ;;
+    *) echo "takt wrapper: unknown key '$key' in $conf" >&2; exit 2 ;;
+  esac
+done < "$conf"
+
+if ! command -v agora > /dev/null; then
+  echo "takt wrapper: $conf is present but agora is not installed (cargo install --path cli in the agora repo)" >&2
+  exit 1
+fi
+
+args=(knowledge show --scene "$scene")
+[[ -n "$lang" ]] && args+=(--lang "$lang")
+body="$(agora "${args[@]}")"
+
+out=".takt/facets/policies/agora-design.md"
+mkdir -p "$(dirname "$out")"
+{
+  cat <<'EOF'
+# agora の設計知識（このプロジェクトの設計方針）
+
+以下は、このプロジェクトが採る設計方針である。
+汎用のポリシー・知識（コーディング、アーキテクチャ、AI アンチパターンなど）と食い違う場合は、こちらを優先する。
+ここに従って足した型・関数・層は、タスクに不要な抽象化として扱わない。
+各項目の「確かめること」は、実装の自己確認とレビューの観点として使う。
+ビルド・テスト・lint などは、プロジェクトの `.takt/config.yaml` にコマンドの関門があれば、コードを変えるステップの終わりに TAKT が機械的に実行し、通らなければ差し戻す。
+レビューのステップでは、これらのコマンドを実行できなくてもよい。結果はコードを変えたステップの報告で確かめる。
+
+EOF
+  printf '%s\n' "$body"
+} > "$out"
+
+if git rev-parse --git-dir > /dev/null 2>&1 && ! git check-ignore -q "$out"; then
+  exclude="$(git rev-parse --git-path info/exclude)"
+  mkdir -p "$(dirname "$exclude")"
+  printf '/%s%s\n' "$(git rev-parse --show-prefix)" "$out" >> "$exclude"
+fi
+
+echo "agora-design: $(wc -c < "$out" | tr -d ' ') bytes (scene=$scene${lang:+, lang=$lang})" >&2
+exec "$real" "$@"

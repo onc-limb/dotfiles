@@ -75,10 +75,21 @@ main() {
 
     # TAKT configuration (~/.takt には SDK 本体や manager の状態も入るため中身を個別にリンク)
     # workflows/・steps/・facet-pools 等は TAKT が symlink を拒否するのでリンクしない
-    # （workflows/ がリンクだと builtin を含む全ワークフローが読めなくなる。ワークフローはプロジェクトの .takt/ に置く）
+    # （workflows/ がリンクだと builtin を含む全ワークフローが読めなくなる。グローバルのワークフローは下で実ファイルとして写す）
     create_link "$DOTFILES_DIR/takt/config.yaml" "$HOME/.takt/config.yaml"
     create_link "$DOTFILES_DIR/takt/runtime.yaml" "$HOME/.takt/runtime.yaml"
     create_link "$DOTFILES_DIR/takt/facets" "$HOME/.takt/facets"
+    # Global workflows are copied as regular files (TAKT rejects symlinked workflows).
+    # Edit takt/workflows/ in dotfiles and re-run install.sh; the copies are overwritten.
+    mkdir -p "$HOME/.takt/workflows"
+    for workflow in "$DOTFILES_DIR"/takt/workflows/*.yaml; do
+        [ -e "$workflow" ] || continue
+        cp "$workflow" "$HOME/.takt/workflows/"
+        info "Copied workflow: ~/.takt/workflows/$(basename "$workflow")"
+    done
+    # takt wrapper: writes agora's design knowledge as a policy before `takt run`
+    # in projects with .takt/agora.conf. ~/.local/bin comes before Homebrew in PATH.
+    create_link "$DOTFILES_DIR/bin/takt" "$HOME/.local/bin/takt"
 
     # Claude Code configuration (selective symlinks to ~/.claude/)
     create_link "$DOTFILES_DIR/claude/home/settings.json" "$HOME/.claude/settings.json"
