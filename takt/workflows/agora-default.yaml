@@ -1,0 +1,65 @@
+name: agora-default
+description: builtin の default と同じ流れに、agora の設計知識（agora-design ポリシー）を計画・テスト・実装・レビューへ足した標準ワークフロー。
+max_steps: 51
+initial_step: develop
+
+# Global workflow (dotfiles). install.sh copies it into ~/.takt/workflows/
+# because TAKT does not read workflows through symlinks; edit this file, not
+# the copy.
+#
+# Mirrors the builtin `default` workflow (TAKT 0.75) and only appends the
+# `agora-design` policy. The `takt` wrapper (dotfiles bin/takt) writes that
+# policy into the project's .takt/facets/policies/ from `agora knowledge show`
+# before each `takt run` in a project that has .takt/agora.conf.
+# When TAKT is upgraded, diff the builtin default.yaml against this file.
+steps:
+  - name: develop
+    description: 要求シナリオに沿って計画・テスト作成・動的実装を進め、agora の設計知識に沿っているかをレビューと修正で確認する
+    kind: workflow_call
+    call: development-core
+    args:
+      implementation_pool: coding-facets
+      implementation_workflow: development-implement-dynamic
+      remediation_workflow: development-remediation-dynamic
+      plan_instruction: scenario-based-plan
+      plan_report_format: scenario-based-plan
+      replan_instruction: scenario-based-replan-implementation
+      testing_instruction: scenario-based-write-tests-first
+      testing_report_format: scenario-based-test-report
+      fix_plan_instruction: scenario-based-fix-plan-from-review-resolution
+      fix_replan_instruction: scenario-based-fix-replan
+      fix_verification_replan_instruction: scenario-based-verification-replan
+      fix_plan_report_format: scenario-based-fix-plan
+      final_gate_instruction: scenario-based-supervise-review-resolution
+      implementation_companions:
+        fixed:
+          - ai-antipattern-review-companion
+          - testing-review-companion
+        pool: []
+        moderator: review-companion-moderator
+      reviewer_suite: development-review
+      plan_policy:
+        - design-planning
+        - agora-design
+      testing_policy:
+        - coding
+        - agora-design
+      development_policy:
+        - coding
+        - agora-design
+      review_policy_additions: []
+      review_policy:
+        - coding
+        - testing
+        - review
+        - architecture
+        - agora-design
+      review_knowledge:
+        - architecture
+        - unit-testing
+        - e2e-testing
+    rules:
+      - condition: COMPLETE
+        next: COMPLETE
+      - condition: ABORT
+        next: ABORT
