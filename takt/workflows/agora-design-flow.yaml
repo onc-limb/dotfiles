@@ -38,9 +38,10 @@ initial_step: design
 #   through `input_reports` on the call (design.md is inherited by the child
 #   steps). design.md carries a fixed section of rules for implementers and
 #   reviewers (output contract agora-design-flow-design.md). Facet names in
-#   `args` are resolved from the child's directory and ~/.takt/facets, so a
-#   policy file of this workflow cannot be passed there; the agora-adr policy
-#   is used on the steps defined in this file (verify).
+#   `args` are resolved from the child's directory and ~/.takt/facets, so the
+#   ADR policy is passed there by its global name `agora-adr-adherence`
+#   (takt/facets is linked to ~/.takt/facets). The steps defined in this file
+#   (verify) use the same file through the relative alias `agora-adr`.
 # - design, verify and report use the builtin personas planner and supervisor,
 #   which takt/runtime.yaml routes to Opus.
 # Facets are referenced by relative path so that the workflow resolves in a
@@ -108,12 +109,15 @@ steps:
       plan_policy:
         - design-planning
         - agora-design
+        - agora-adr-adherence
       testing_policy:
         - coding
         - agora-design
+        - agora-adr-adherence
       development_policy:
         - coding
         - agora-design
+        - agora-adr-adherence
       review_policy_additions: []
       review_policy:
         - coding
@@ -121,6 +125,7 @@ steps:
         - review
         - architecture
         - agora-design
+        - agora-adr-adherence
       review_knowledge:
         - architecture
         - unit-testing
