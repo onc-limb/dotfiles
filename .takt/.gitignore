@@ -1,0 +1,32 @@
+# Ignore everything by default
+*
+
+# This file itself
+!.gitignore
+
+# Project configuration
+!config.yaml
+
+# Facets and workflows (version-controlled)
+!workflows/
+!workflows/**
+!steps/
+!steps/**
+!facets/
+!facets/personas/
+!facets/personas/**
+!facets/policies/
+!facets/policies/**
+!facets/knowledge/
+!facets/knowledge/**
+!facets/instructions/
+!facets/instructions/**
+!facets/output-contracts/
+!facets/output-contracts/**
+
+# agora wiring: the `takt` wrapper (bin/takt) reads agora.conf and writes
+# agora-design.md from agora's core/ before each run (cache, not committed).
+# dotfiles opts in so that `takt workflow doctor` can resolve the policy the
+# agora-* workflows reference.
+!agora.conf
+facets/policies/agora-design.md

@@ -1,0 +1,17 @@
+# Command gates for TAKT runs in dotfiles. TAKT runs them in the task worktree
+# at the end of each step that edits files and sends the step back on failure.
+# Reviewers cannot run commands (TAKT drops Bash from steps without edit), so
+# workflow checks live here instead of in a reviewer's instructions.
+workflow_overrides:
+  steps:
+    # workflow-maker
+    create:
+      quality_gates: &workflow_doctor
+        - type: command
+          name: takt-workflow-doctor
+          command: takt workflow doctor takt/workflows/*.yaml
+        - type: command
+          name: takt-wrapper-syntax
+          command: bash -n bin/takt
+    fix:
+      quality_gates: *workflow_doctor
