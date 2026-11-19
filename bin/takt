@@ -32,6 +32,31 @@ if [[ -z "$real" ]]; then
   exit 127
 fi
 
+# Billing: a project can send its TAKT agents to the Claude API (Console
+# credits) instead of the Claude subscription. .takt/auth.conf (KEY=VALUE):
+#   anthropic_profile=takt   # an `ant auth login --profile takt` profile
+# The wrapper exports ANTHROPIC_PROFILE for every takt command in that
+# project; TAKT passes its environment to the Claude Code it spawns, and an
+# ANTHROPIC_PROFILE takes precedence over the claude.ai login there. A profile
+# already set in the environment wins. The file is machine-specific: keep it
+# out of git (the default .takt/.gitignore ignores it).
+auth_conf=".takt/auth.conf"
+if [[ -f "$auth_conf" && -z "${ANTHROPIC_PROFILE:-}" ]]; then
+  while IFS='=' read -r key value; do
+    key="${key//[[:space:]]/}"
+    value="${value%%#*}"
+    value="${value//[[:space:]]/}"
+    case "$key" in
+      '' | \#*) ;;
+      anthropic_profile) [[ -n "$value" ]] && export ANTHROPIC_PROFILE="$value" ;;
+      *) echo "takt wrapper: unknown key '$key' in $auth_conf" >&2; exit 2 ;;
+    esac
+  done < "$auth_conf"
+  if [[ -n "${ANTHROPIC_PROFILE:-}" ]]; then
+    echo "takt wrapper: ANTHROPIC_PROFILE=$ANTHROPIC_PROFILE (Claude API billing)" >&2
+  fi
+fi
+
 conf=".takt/agora.conf"
 case "${1:-}" in
   run | watch) ;;
