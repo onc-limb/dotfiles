@@ -12,3 +12,7 @@ draft_pr: false
 observability:
   enabled: true
   usage_events_phase: true
+
+# Use the Homebrew Codex CLI instead of the one bundled with takt's Codex SDK
+# (bundled 0.164.0 rejects gpt-6.2-astra for ChatGPT accounts; 0.169.1 accepts it).
+codex_cli_path: /opt/homebrew/bin/codex
