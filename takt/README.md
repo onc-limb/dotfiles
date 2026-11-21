@@ -63,6 +63,29 @@ TAKT_BILLING=subscription takt list   # retry →「Resume failed position」
   仕事用で Codex が受け持つ役割（`implementer`・`implementer-retry`）だけを OpenCode Go に替える。
 - `build-runtime.py` が 2 つを合わせて `runtime.yaml` を作る。仕事用は `--deny opencode --deny openrouter` 付きで作る。
 
+## ワークフロー（共通）
+
+`agora-default`・`agora-design-flow` は、組み込みの `development-core`・`peer-review` を写して手を加えた
+`agora-development-core`・`agora-peer-review` を呼ぶ（TAKT を上げたら組み込みとの差分を見る）。
+
+- **計画の見直し**: 計画の後に `plan-review`（判断役のモデル）が 5 項目を確かめる。
+  - 確かめる 5 項目:
+    1. ゴールが受け入れ条件で閉じている
+    2. 範囲外の扱いが決まっている
+    3. 受け入れを run の中で確かめられる
+    4. 設計判断を勝手に決めていない
+    5. 1 回の run に収まる大きさ
+  - 見直しの結果ごとの行き先:
+    - 進める → テストの作成へ。
+    - 計画を直す → `plan-revise`（最上位の計画モデル）→ `plan-review-2` へ。
+    - 人に戻す → 中止。
+  - 差し戻しは 1 回まで。`plan-review-2` からは計画へ戻る道がない。
+- **計画の昇格**: テストの作成から計画へ戻ったときは、2 回目の `plan` が Opus から Fable に上がる（`promotion: [{at: 2}]`）。
+- **修正の周回の上限**: レビュー → 裁定 → 修正の周回は、修正 3 回で止めて人に戻す。止めたときは、判定役が残っている問題と止めた理由を書く。
+- **範囲の関門**:
+  - 裁定とレビュー（`agora-review-scope`）: 前からある問題や範囲外の改善は、今回は直さず後続の課題として記録する。
+  - 修正の確認（`agora-fix-verification-scope`）: 裁定が決めた受け入れ条件だけで判定する。
+
 ## テスト
 
 ```bash
@@ -71,3 +94,4 @@ python3 -m unittest discover -s takt/tests -p 'test_*.py'
 ```
 
 `test_build_runtime.py` は、TAKT が入っていれば TAKT 自身の検証（`tests/validate-runtime.mjs`）でも生成物を確かめる。
+`test_workflows.py` は、共通のワークフローを TAKT のローダーで読み、見直しの行き先・昇格・周回の上限の形を確かめる。

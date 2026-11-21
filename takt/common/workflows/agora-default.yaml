@@ -1,5 +1,5 @@
 name: agora-default
-description: builtin の default と同じ流れに、agora の設計知識（agora-design ポリシー）を計画・テスト・実装・レビューへ足した標準ワークフロー。
+description: builtin の default と同じ流れに、agora の設計知識（agora-design ポリシー）と、計画の見直し・修正の周回の上限・レビューの範囲の関門を足した標準ワークフロー。
 max_steps: 51
 initial_step: develop
 
@@ -7,16 +7,24 @@ initial_step: develop
 # because TAKT does not read workflows through symlinks; edit this file, not
 # the copy.
 #
-# Mirrors the builtin `default` workflow (TAKT 0.75) and only appends the
-# `agora-design` policy. The `takt` wrapper (dotfiles bin/takt) writes that
-# policy into the project's .takt/facets/policies/ from `agora knowledge show`
+# Mirrors the builtin `default` workflow (TAKT 0.75), with these changes:
+# - calls agora-development-core (plan review, cap on fix rounds) instead of
+#   the builtin development-core;
+# - appends the `agora-design` policy;
+# - review_policy_additions: agora-review-scope (reviewers and adjudication
+#   send out-of-scope findings to follow-up tasks);
+# - verification_policy: review policy + agora-fix-verification-scope (fix
+#   verification checks the finding's acceptance criteria only).
+# The `takt` wrapper (dotfiles bin/takt) writes the `agora-design` policy
+# into the project's .takt/facets/policies/ from `agora knowledge show`
 # before each `takt run` in a project that has .takt/agora.conf.
-# When TAKT is upgraded, diff the builtin default.yaml against this file.
+# When TAKT is upgraded, diff the builtin default.yaml against this file, and
+# development-core.yaml / peer-review.yaml against the agora-* forks.
 steps:
   - name: develop
     description: 要求シナリオに沿って計画・テスト作成・動的実装を進め、agora の設計知識に沿っているかをレビューと修正で確認する
     kind: workflow_call
-    call: development-core
+    call: ./agora-development-core.yaml
     args:
       implementation_pool: coding-facets
       implementation_workflow: development-implement-dynamic
@@ -47,7 +55,8 @@ steps:
       development_policy:
         - coding
         - agora-design
-      review_policy_additions: []
+      review_policy_additions:
+        - agora-review-scope
       review_policy:
         - coding
         - testing
@@ -58,6 +67,13 @@ steps:
         - architecture
         - unit-testing
         - e2e-testing
+      verification_policy:
+        - coding
+        - testing
+        - review
+        - architecture
+        - agora-design
+        - agora-fix-verification-scope
     rules:
       - condition: COMPLETE
         next: COMPLETE

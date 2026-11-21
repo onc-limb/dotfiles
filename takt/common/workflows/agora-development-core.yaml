@@ -1,0 +1,464 @@
+name: agora-development-core
+description: builtin の development-core に、計画の見直し（差し戻しは 1 回まで・2 回目の計画は最上位モデル）と、修正の周回の上限・範囲の関門を持つピアレビューを足した開発フロー。
+all_steps:
+  rules:
+    - ref: findings-handling
+      position: before_instruction
+    - ref: plain-terminology
+      position: before_instruction
+
+# Global workflow (dotfiles). install.sh copies it into each TAKT config dir.
+# Edit this file, not the copy.
+#
+# Fork of the builtin `development-core` (TAKT 0.75, ja), called from
+# agora-default. Changes:
+# - plan -> plan-review (new). The reviewer (judge role) checks five things
+#   (agora-plan-review.md). Outcomes: ok -> write_tests; plan can be fixed
+#   within the task -> plan-revise; the task itself is unclear / needs a design
+#   decision / is too big -> ABORT (back to the human).
+# - At most one send-back, as the shape of the graph: plan-revise ->
+#   plan-review-2, and plan-review-2 has no way back to planning.
+#   (TAKT's `when(...)` cannot read visit counts and loop_monitors are judged
+#   by an LLM.) plan-revise is routed to the top planning model by
+#   takt/common/targets.yaml (steps.plan-revise: planner-top).
+# - plan has `promotion: [{at: 2}]`: when write_tests sends the task back to
+#   plan, the second plan climbs the planner ladder (Opus -> Fable).
+# - peer_review_workflow defaults to agora-peer-review (cap on fix rounds).
+# - New param verification_policy, passed to peer review's fix verification
+#   (the builtin passes review_policy there), so that the caller can limit
+#   fix verification to the finding's acceptance criteria.
+# When TAKT is upgraded, diff the builtin development-core.yaml against this
+# file.
+
+personas:
+  plan-reviewer: ../facets/personas/agora-plan-reviewer.md
+instructions:
+  plan-review: ../facets/instructions/agora-plan-review.md
+  plan-revise: ../facets/instructions/agora-plan-revise.md
+report_formats:
+  plan-review: ../facets/output-contracts/agora-plan-review.md
+
+subworkflow:
+  callable: true
+  visibility: internal
+  params:
+    implementation_pool:
+      type: facet_pool_ref
+      default: coding-facets
+    implementation_workflow:
+      type: workflow_ref
+      default: development-implement
+    remediation_workflow:
+      type: workflow_ref
+      default: development-remediation
+    implementation_companions:
+      type: companion_ref[]
+      default: []
+    reviewer_suite:
+      type: workflow_ref
+      default: peer-review-suite-base
+    peer_review_workflow:
+      type: workflow_ref
+      default: ./agora-peer-review.yaml
+    plan_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - design-planning
+    plan_knowledge:
+      type: facet_ref[]
+      facet_kind: knowledge
+      default:
+        - architecture
+        - task-decomposition
+    plan_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: plan
+    plan_report_format:
+      type: facet_ref
+      facet_kind: report_format
+      default: plan
+    replan_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: replan-implementation
+    testing_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - coding
+        - testing
+    testing_knowledge:
+      type: facet_ref[]
+      facet_kind: knowledge
+      default:
+        - architecture
+        - unit-testing
+        - e2e-testing
+    testing_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: write-tests-first
+    testing_report_format:
+      type: facet_ref
+      facet_kind: report_format
+      default: test-report
+    development_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - coding
+        - testing
+        - ai-antipattern
+    development_knowledge:
+      type: facet_ref[]
+      facet_kind: knowledge
+      default:
+        - architecture
+        - implementation-semantics
+    implementation_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: development-implement-with-reports
+    reimplementation_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: development-reimplement-with-reports
+    scope_report_format:
+      type: facet_ref
+      facet_kind: report_format
+      default: coder-scope
+    review_policy_additions:
+      type: facet_ref[]
+      facet_kind: policy
+      default: []
+    review_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - coding
+        - testing
+        - review
+    review_knowledge:
+      type: facet_ref[]
+      facet_kind: knowledge
+      default:
+        - architecture
+        - unit-testing
+        - e2e-testing
+    security_review_knowledge_additions:
+      type: facet_ref[]
+      facet_kind: knowledge
+      default: []
+    security_review_pool:
+      type: facet_pool_ref
+      default: security-review-facets
+    fix_plan_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: fix-plan-from-review-resolution
+    fix_replan_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: fix-replan
+    fix_verification_replan_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: verification-replan
+    fix_plan_report_format:
+      type: facet_ref
+      facet_kind: report_format
+      default: fix-plan
+    final_gate_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: supervise-review-resolution
+    verification_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - coding
+        - testing
+        - review
+initial_step: plan
+
+facet_pools:
+  coding-facets:
+    uses: coding-facets
+  takt-coding-facets:
+    uses: takt-coding-facets
+  security-review-facets:
+    uses: security-review-facets
+  takt-security-review-facets:
+    uses: takt-security-review-facets
+
+steps:
+  - name: plan
+    capabilities:
+      - readonly
+    uses: development-core-plan
+    promotion:
+      - at: 2
+    with:
+      plan_policy:
+        $param: plan_policy
+      plan_knowledge:
+        $param: plan_knowledge
+      plan_instruction:
+        $param: plan_instruction
+      plan_report_format:
+        $param: plan_report_format
+    rules:
+      - condition: 要件が明確で実装可能
+        next: plan-review
+      - condition: ユーザーが質問をしている（実装タスクではない）
+        next: COMPLETE
+      - condition: 要件が不明確、情報不足
+        next: ABORT
+
+  - name: plan-review
+    description: 計画が指示書のゴールと受け入れ条件で閉じているか、範囲外の扱い・受け入れの実行可能性・設計判断・大きさを確かめる
+    input_reports:
+      from_step: plan
+      reports:
+        - plan.md
+    edit: false
+    capabilities: readonly
+    persona: plan-reviewer
+    policy:
+      $param: plan_policy
+    knowledge:
+      $param: plan_knowledge
+    instruction: plan-review
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: plan-review.md
+          format: plan-review
+    rules:
+      - condition: 結果が「進める」（5 項目をすべて満たす）
+        next: write_tests
+      - condition: 結果が「計画を直す」（指示書の情報だけで計画を直せば満たせる）
+        next: plan-revise
+      - condition: 結果が「人に戻す」（指示書のゴール・受け入れ条件が曖昧、指示書に無い設計判断が要る、または 1 回の run には大きすぎる）
+        next: ABORT
+
+  - name: plan-revise
+    description: 計画の見直しの指摘に沿って、最上位の計画モデルで計画を作り直す（差し戻しは 1 回まで）
+    input_reports:
+      - from_step: plan
+        reports:
+          - plan.md
+      - from_step: plan-review
+        reports:
+          - plan-review.md
+    tags:
+      - plan
+    edit: false
+    capabilities: readonly
+    persona: planner
+    policy:
+      - contract-change
+      - $param: plan_policy
+    knowledge:
+      $param: plan_knowledge
+    instruction:
+      - $param: plan_instruction
+      - plan-revise
+    output_contracts:
+      report:
+        - name: plan.md
+          format:
+            $param: plan_report_format
+    rules:
+      - condition: 見直しの指摘を解消した計画を作った
+        next: plan-review-2
+      - condition: 指示書の情報だけでは見直しの指摘を解消できない
+        next: ABORT
+
+  - name: plan-review-2
+    description: 作り直した計画を同じ 5 項目で確かめる。ここからは計画へ戻さない
+    input_reports:
+      - from_step: plan-revise
+        reports:
+          - plan.md
+      - from_step: plan-review
+        reports:
+          - plan-review.md
+    edit: false
+    capabilities: readonly
+    persona: plan-reviewer
+    policy:
+      $param: plan_policy
+    knowledge:
+      $param: plan_knowledge
+    instruction: plan-review
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: plan-review.md
+          format: plan-review
+    rules:
+      - condition: 結果が「進める」（5 項目をすべて満たす）
+        next: write_tests
+      - condition: 結果が「人に戻す」（5 項目のどれかを満たさない）
+        next: ABORT
+
+  - name: replan
+    description: 実装・検証の不足と制約を整理し、実装の続行・独立レビュー・停止のいずれかを判断する
+    input_reports:
+      from_step: peer-review
+      reports:
+        - review-resolution.md
+      optional_if_unrun: true
+    tags:
+      - plan
+    edit: false
+    capabilities: readonly
+    persona: planner
+    policy:
+      - process-deviation
+      - contract-change
+      - applicable-inputs
+      - $param: plan_policy
+    knowledge:
+      $param: plan_knowledge
+    instruction:
+      $param: replan_instruction
+    output_contracts:
+      report:
+        - name: plan.md
+          format:
+            $param: plan_report_format
+    rules:
+      - condition: >-
+          ユーザー入力や外部操作を待たずに、今回の要件・採用済み契約の未達を解消するために必要な、
+          プロジェクト内で実行可能な未試行のコード変更・テスト変更・原因調査・有効な検証手段を、実行条件とともに具体化した。
+          未実行で今実行できる必須検証も含む。同じ制約で失敗した手段は、結果に影響する入力・環境・方式の差分と
+          制約の解消・回避根拠がなければ未試行としない。無関係な作業は含めない。
+        next: implement
+      - condition: >-
+          今回の要件・受入条件について、次のすべてを満たす。
+          (1) 現行実装と利用可能なプロジェクト内検証の具体的証拠が、プロジェクト内で判定できる範囲を裏付ける。
+          (2) 未解消の実装欠陥・未着手の必須作業・実行可能な新しいプロジェクト内作業がない。
+          (3) 必須検証は完了しているか、環境制約で実証できない検証だけが未確認のまま残り、
+          その試行証跡・制約・明示された外部検証義務を保持して独立レビューへ渡せる。
+          (4) 同じ実装・証跡・外部制約について直近の独立レビューの最終判定が既に BLOCKED で、
+          その後に結果へ影響する変化がないケースには当たらない。
+          未確認を成功・最終完了としない。無関係な既存問題やレポートの未完了ラベルだけでは妨げない。
+        next: peer-review
+      - condition: >-
+          次のいずれかに該当する。
+          (1) 直近の独立レビューの最終判定が、同じ現行実装・証跡・外部制約について既に BLOCKED であり、
+          その後に結果へ影響する変化も実行可能な新しいプロジェクト内作業もない。
+          未確認の必須外部検証と必要な外部操作・回答を保持して待機する。
+          (2) 上記の独立レビューへ渡す条件を満たさず、今回の必須条件についてプロジェクト内の作業では解消できない
+          不可欠な外部操作・回答待ちだけが残るか、確認済みの根拠から要件が両立しない。
+          未確認・失敗の報告だけでは該当しない。
+        next: ABORT
+
+  - name: write_tests
+    capabilities:
+      - edit
+    uses: development-core-write-tests
+    with:
+      testing_policy:
+        $param: testing_policy
+      testing_knowledge:
+        $param: testing_knowledge
+      testing_instruction:
+        $param: testing_instruction
+      testing_report_format:
+        $param: testing_report_format
+    rules:
+      - condition: テスト作業を終えた
+        next: implement
+      - condition: 実装後でなければ必要なテストを作成できない
+        next: implement
+      - condition: テスト作成を進行できない
+        next: plan
+      - condition: ユーザーへの確認事項があるためユーザー入力が必要
+        next: write_tests
+        requires_user_input: true
+        interactive_only: true
+
+  - name: implement
+    description: 計画に沿った実装と必須検証を実行し、不足の補完または再計画の必要性を報告する
+    kind: workflow_call
+    call:
+      $param: implementation_workflow
+    args:
+      implementation_pool:
+        $param: implementation_pool
+      implementation_companions:
+        $param: implementation_companions
+      development_policy:
+        $param: development_policy
+      development_knowledge:
+        $param: development_knowledge
+      implementation_instruction:
+        $param: implementation_instruction
+      reimplementation_instruction:
+        $param: reimplementation_instruction
+      scope_report_format:
+        $param: scope_report_format
+    rules:
+      - condition: COMPLETE
+        next: peer-review
+      - condition: need_replan
+        next: replan
+      - condition: ABORT
+        next: replan
+
+  - name: peer-review
+    description: 専門レビューの指摘を裁定して修正・検証し、要件充足を確認して完了か再計画かを判断する
+    kind: workflow_call
+    call:
+      $param: peer_review_workflow
+    args:
+      reviewer_suite:
+        $param: reviewer_suite
+      review_policy_additions:
+        $param: review_policy_additions
+      review_knowledge_additions:
+        $param: review_knowledge
+      security_review_knowledge_additions:
+        $param: security_review_knowledge_additions
+      security_review_pool:
+        $param: security_review_pool
+      fix_companions:
+        $param: implementation_companions
+      remediation_workflow:
+        $param: remediation_workflow
+      fix_pool:
+        $param: implementation_pool
+      plan_policy:
+        $param: review_policy
+      fix_policy:
+        $param: development_policy
+      fix_knowledge:
+        $param: development_knowledge
+      verification_knowledge:
+        $param: review_knowledge
+      verification_policy:
+        $param: verification_policy
+      final_gate_policy:
+        $param: review_policy
+      fix_plan_instruction:
+        $param: fix_plan_instruction
+      fix_replan_instruction:
+        $param: fix_replan_instruction
+      fix_verification_replan_instruction:
+        $param: fix_verification_replan_instruction
+      fix_plan_report_format:
+        $param: fix_plan_report_format
+      final_gate_instruction:
+        $param: final_gate_instruction
+    rules:
+      - condition: COMPLETE
+        next: COMPLETE
+      - condition: need_replan
+        next: replan
+      - condition: ABORT
+        next: ABORT

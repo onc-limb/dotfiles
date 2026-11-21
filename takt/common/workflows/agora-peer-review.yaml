@@ -1,0 +1,294 @@
+name: agora-peer-review
+description: builtin の peer-review と同じ流れに、修正の周回の上限（修正 3 回で人に戻す）を足したピアレビュー。
+all_steps:
+  rules:
+    - ref: findings-handling
+      position: before_instruction
+    - ref: plain-terminology
+      position: before_instruction
+
+# Global workflow (dotfiles). install.sh copies it into each TAKT config dir.
+# Edit this file, not the copy.
+#
+# Fork of the builtin `peer-review` (TAKT 0.75, ja). Called from
+# agora-development-core through its `peer_review_workflow` param. Changes:
+# - loop_monitors: a hard cap on review -> fix rounds (see below).
+# - instructions: `loop-cap` for the cap's judge.
+# The scope gate on adjudication and on fix verification is passed in as
+# policies (review_policy_additions / verification_policy) by the caller.
+# When TAKT is upgraded, diff the builtin peer-review.yaml against this file.
+
+instructions:
+  loop-cap: ../facets/instructions/agora-loop-cap.md
+
+subworkflow:
+  callable: true
+  visibility: internal
+  returns:
+    - need_replan
+  params:
+    reviewer_suite:
+      type: workflow_ref
+      default: peer-review-suite-base
+    fix_companions:
+      type: companion_ref[]
+      default: []
+    fix_pool:
+      type: facet_pool_ref
+      default: coding-facets
+    remediation_workflow:
+      type: workflow_ref
+      default: development-remediation
+    review_policy_additions:
+      type: facet_ref[]
+      facet_kind: policy
+      default: []
+    review_knowledge_additions:
+      type: facet_ref[]
+      facet_kind: knowledge
+      default:
+        - architecture
+        - takt
+    security_review_knowledge_additions:
+      type: facet_ref[]
+      facet_kind: knowledge
+      default: []
+    security_review_pool:
+      type: facet_pool_ref
+      default: security-review-facets
+    fix_knowledge:
+      type: facet_ref[]
+      facet_kind: knowledge
+      default:
+        - takt
+        - architecture
+    verification_knowledge:
+      type: facet_ref[]
+      facet_kind: knowledge
+      default:
+        - takt
+        - architecture
+    plan_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - coding
+        - testing
+        - review
+    fix_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - coding
+        - testing
+    verification_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - coding
+        - testing
+        - review
+    final_gate_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - coding
+        - testing
+        - review
+        - architecture
+        - takt
+    fix_plan_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: fix-plan-from-review-resolution
+    fix_replan_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: fix-replan
+    fix_verification_replan_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: verification-replan
+    fix_plan_report_format:
+      type: facet_ref
+      facet_kind: report_format
+      default: fix-plan
+    final_gate_instruction:
+      type: facet_ref
+      facet_kind: instruction
+      default: supervise-review-resolution
+facet_pools:
+  coding-facets:
+    uses: coding-facets
+  takt-coding-facets:
+    uses: takt-coding-facets
+  security-review-facets:
+    uses: security-review-facets
+  takt-security-review-facets:
+    uses: takt-security-review-facets
+initial_step: initial-reviewers
+loop_monitors:
+  # Hard cap on review -> fix rounds (replaces the builtin judged monitors,
+  # which can keep answering "healthy"). final-gate is ignored so that the
+  # REJECT path (reviewers -> adjudication -> final-gate -> remediation) counts
+  # as the same round. The cycle only counts follow-up rounds (the first round
+  # starts at initial-reviewers), so threshold 2 stops before the 3rd
+  # follow-up review: at most 3 remediation runs in one peer review.
+  # The judge has a single rule, so any decision it returns is ABORT; it only
+  # writes down for the human where the loop stalled. (If the judge itself
+  # fails, TAKT continues with the natural transition.)
+  - cycle:
+      - reviewers
+      - review-adjudication
+      - remediation
+    ignore_steps:
+      - final-gate
+    threshold: 2
+    judge:
+      input_reports:
+        - from_step: remediation
+          reports: [fix-plan.md, fix-report.md, fix-verification.md]
+          history: {previous: 2}
+        - from_step: review-adjudication
+          reports: [review-resolution.md]
+          history: {previous: 2}
+      persona: supervisor
+      instruction: loop-cap
+      rules:
+        - condition: 修正の周回が上限に達した。残っている問題と止めた理由を記録し、人の判断に戻す
+          next: ABORT
+steps:
+  - name: initial-reviewers
+    uses: peer-review-suite-call
+    vars:
+      review_mode: initial
+    with:
+      reviewer_suite:
+        $param: reviewer_suite
+      review_policy_additions:
+        $param: review_policy_additions
+      review_knowledge_additions:
+        $param: review_knowledge_additions
+      security_review_knowledge_additions:
+        $param: security_review_knowledge_additions
+      security_review_pool:
+        $param: security_review_pool
+      architecture_review_instruction: architecture-review
+      security_review_instruction: security-review
+      testing_review_instruction: testing-review
+      coding_review_instruction: coding-review
+      ai_antipattern_review_instruction: initial-ai-antipattern-review
+      frontend_review_instruction: frontend-review
+      cqrs_es_review_instruction: cqrs-es-review
+    rules:
+      - condition: COMPLETE
+        next: review-adjudication
+      - condition: needs_fix
+        next: review-adjudication
+  - name: reviewers
+    input_reports:
+      from_step: remediation
+      reports:
+        - fix-plan.md
+        - fix-report.md
+        - fix-verification.md
+    uses: peer-review-suite-call
+    vars:
+      review_mode: follow_up
+    with:
+      reviewer_suite:
+        $param: reviewer_suite
+      review_policy_additions:
+        $param: review_policy_additions
+      review_knowledge_additions:
+        $param: review_knowledge_additions
+      security_review_knowledge_additions:
+        $param: security_review_knowledge_additions
+      security_review_pool:
+        $param: security_review_pool
+      architecture_review_instruction: follow-up-architecture-review
+      security_review_instruction: follow-up-security-review
+      testing_review_instruction: follow-up-testing-review
+      coding_review_instruction: follow-up-coding-review
+      ai_antipattern_review_instruction: follow-up-ai-antipattern-review
+      frontend_review_instruction: follow-up-frontend-review
+      cqrs_es_review_instruction: follow-up-cqrs-es-review
+    rules:
+      - condition: COMPLETE
+        next: review-adjudication
+      - condition: needs_fix
+        next: review-adjudication
+  - name: review-adjudication
+    input_reports:
+      - from_step: remediation
+        reports: [fix-plan.md, fix-report.md, fix-verification.md]
+        optional_if_unrun: true
+        history: {previous: 2}
+    uses: peer-review-adjudication
+    with:
+      review_policy_additions:
+        $param: review_policy_additions
+      review_knowledge_additions:
+        $param: review_knowledge_additions
+    rules:
+      - condition: 修正対象あり
+        next: remediation
+      - condition: 修正対象なし
+        next: final-gate
+      - condition: タスク全体の再計画が必要
+        return: need_replan
+  - name: final-gate
+    uses: peer-review-final-gate
+    with:
+      review_knowledge:
+        $param: review_knowledge_additions
+      final_gate_policy:
+        $param: final_gate_policy
+      final_gate_instruction:
+        $param: final_gate_instruction
+    rules:
+      - condition: APPROVE
+        next: COMPLETE
+      - condition: REJECT
+        next: remediation
+      - condition: BLOCKED
+        return: need_replan
+  - name: remediation
+    input_reports:
+      - from_step: review-adjudication
+        reports: [review-resolution.md]
+        history: {previous: 2}
+    description: 裁定で修正対象とした問題の修正計画を立て、実装と独立検証を繰り返して解消する
+    kind: workflow_call
+    call:
+      $param: remediation_workflow
+    args:
+      fix_pool:
+        $param: fix_pool
+      fix_companions:
+        $param: fix_companions
+      fix_policy:
+        $param: fix_policy
+      fix_knowledge:
+        $param: fix_knowledge
+      verification_knowledge:
+        $param: verification_knowledge
+      plan_policy:
+        $param: plan_policy
+      verification_policy:
+        $param: verification_policy
+      fix_plan_instruction:
+        $param: fix_plan_instruction
+      fix_replan_instruction:
+        $param: fix_replan_instruction
+      fix_verification_replan_instruction:
+        $param: fix_verification_replan_instruction
+      fix_plan_report_format:
+        $param: fix_plan_report_format
+    rules:
+      - condition: COMPLETE
+        next: reviewers
+      - condition: need_replan
+        return: need_replan
+      - condition: ABORT
+        next: ABORT
