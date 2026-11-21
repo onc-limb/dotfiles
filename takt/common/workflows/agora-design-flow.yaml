@@ -3,7 +3,7 @@ description: 設計（比較・ADR）→ 実装 → 設計への適合の検証 
 max_steps: 80
 initial_step: design
 
-# Global workflow (dotfiles). install.sh copies it into ~/.takt/workflows/
+# Global workflow (dotfiles). install.sh copies it into each TAKT config dir (~/.takt-work, ~/.takt-private, ~/.takt)
 # because TAKT does not read workflows through symlinks; edit this file, not
 # the copy.
 #
@@ -17,7 +17,7 @@ initial_step: design
 # When TAKT is upgraded, diff the builtin development-core.yaml against the
 # args below.
 #
-# How the loop back to design is built (see also takt/facets/):
+# How the loop back to design is built (see also takt/common/facets/):
 # - `development-core` only returns COMPLETE or ABORT, so "an ADR is missing"
 #   cannot be a return value of the call. Both results go to an independent
 #   `verify` step (fresh context, reads ADRs + code only), which is the one
@@ -42,9 +42,9 @@ initial_step: design
 #   policy file of this workflow cannot be passed there; the agora-adr policy
 #   is used on the steps defined in this file (verify).
 # - design, verify and report use the builtin personas planner and supervisor,
-#   which takt/runtime.yaml routes to Opus.
+#   which takt/common/targets.yaml routes to the judgment models (Opus).
 # Facets are referenced by relative path so that the workflow resolves in a
-# task worktree and after install.sh copied it to ~/.takt/workflows/.
+# task worktree and after install.sh copied it into the TAKT config dirs.
 
 policies:
   agora-adr: ../facets/policies/agora-adr-adherence.md

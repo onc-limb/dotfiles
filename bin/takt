@@ -1,12 +1,55 @@
 #!/usr/bin/env bash
-# Wrapper around the real `takt` that hands agora's design knowledge to TAKT.
+# Wrapper around the real `takt`. It does two things:
+#
+# 1. Picks the TAKT environment (global config dir) for the project, and makes
+#    sure WORK never runs on private settings (Claude API billing, OpenCode).
+# 2. Hands agora's design knowledge to TAKT (.takt/agora.conf projects).
+#
+# ---------------------------------------------------------------------------
+# 1. Environment: work (default) or private
+#
+#   work     TAKT_CONFIG_DIR=~/.takt-work. Claude subscription + Codex
+#            subscription only.
+#   private  TAKT_CONFIG_DIR=~/.takt-private. Claude API (or, after the credits
+#            run out, the Claude subscription + OpenCode Go).
+#
+# Private is used only when BOTH hold:
+#   - the project (git top level, symlinks resolved) is under
+#     ~/Documents/onclimb-industries/, and
+#   - the project has .takt/private.conf (for a linked worktree, the main
+#     checkout's .takt/private.conf also counts).
+# Everything else is work. Under ~/work/ it is always work.
+#
+# Mixed settings stop the run instead of being ignored:
+#   - a private marker (.takt/private.conf, or the old .takt/auth.conf) in a
+#     work project,
+#   - TAKT_CONFIG_DIR inherited as ~/.takt-private while the project is work
+#     (takt started from inside a private run),
+#   - opencode / openrouter / API keys / base_url / runtime assignments in the
+#     work project's .takt/config.yaml or runtime.yaml, or in ~/.takt-work,
+#   - --provider / --model naming opencode or openrouter, --runtime-assignment
+#     or --runtime-file on the command line in work.
+# In work, every variable that can switch billing is removed, Anthropic profile
+# lookup points at an empty directory and the OpenCode CLI at /usr/bin/false.
+#
+# .takt/private.conf (KEY=VALUE, git-ignored; never put one in a work repo):
+#   billing=api             # api (Claude API, default) | subscription (credit-out)
+#   anthropic_profile=takt  # `ant auth login --profile <name>` used for billing=api
+# TAKT_BILLING=subscription overrides billing for one command, e.g. to resume a
+# run that stopped on credits:  TAKT_BILLING=subscription takt list  (retry ->
+# "Resume failed position").
+#
+# Started without this wrapper (the real binary by path), TAKT uses ~/.takt,
+# which install.sh fills from the work settings.
+#
+# ---------------------------------------------------------------------------
+# 2. agora's design knowledge
 #
 # TAKT reads policies only as files and checks them when it loads a workflow,
 # so the knowledge has to be on disk before `takt run` starts. In a project
 # that opts in with .takt/agora.conf, this wrapper writes
 # .takt/facets/policies/agora-design.md from `agora knowledge show` right
-# before `takt run` / `takt watch` / `takt --pipeline`, then runs the real takt. Everywhere else it
-# only passes through.
+# before `takt run` / `takt watch` / `takt --pipeline`, then runs the real takt.
 #
 # .takt/agora.conf (KEY=VALUE, all optional):
 #   lang=typescript   # passed to `agora knowledge show --lang` (omit: all languages)
@@ -14,8 +57,17 @@
 #
 # The generated file is a cache; agora's core/ stays the only source. It is
 # added to .git/info/exclude unless the project already ignores it.
-# The `agora-default` workflow that uses the policy is in dotfiles takt/workflows/.
+# The `agora-default` workflow that uses the policy is in dotfiles takt/common/workflows/.
+#
+# Written for bash 3.2 as well (cron and other non-login shells may get /bin/bash).
 set -euo pipefail
+
+die() { printf 'takt wrapper: %s\n' "$*" >&2; exit 2; }
+# realpath for paths that may not exist (macOS realpath has no -m).
+canon() { if [[ -e "$1" ]]; then realpath "$1"; else printf '%s\n' "$1"; fi; }
+under() { [[ "$1" == "$2" || "$1" == "$2"/* ]]; }
+# Print the first non-comment line of $1 that matches the ERE $2, with its number.
+first_hit() { sed 's/#.*//' "$1" | grep -nEi "$2" | head -1 || true; }
 
 self="$(realpath "$0")"
 real=""
@@ -32,34 +84,9 @@ if [[ -z "$real" ]]; then
   exit 127
 fi
 
-# Billing: a project can send its TAKT agents to the Claude API (Console
-# credits) instead of the Claude subscription. .takt/auth.conf (KEY=VALUE):
-#   anthropic_profile=takt   # an `ant auth login --profile takt` profile
-# The wrapper exports ANTHROPIC_PROFILE for every takt command in that
-# project; TAKT passes its environment to the Claude Code it spawns, and an
-# ANTHROPIC_PROFILE takes precedence over the claude.ai login there. A profile
-# already set in the environment wins. The file is machine-specific: keep it
-# out of git (the default .takt/.gitignore ignores it).
-auth_conf=".takt/auth.conf"
-if [[ -f "$auth_conf" && -z "${ANTHROPIC_PROFILE:-}" ]]; then
-  while IFS='=' read -r key value; do
-    key="${key//[[:space:]]/}"
-    value="${value%%#*}"
-    value="${value//[[:space:]]/}"
-    case "$key" in
-      '' | \#*) ;;
-      anthropic_profile) [[ -n "$value" ]] && export ANTHROPIC_PROFILE="$value" ;;
-      *) echo "takt wrapper: unknown key '$key' in $auth_conf" >&2; exit 2 ;;
-    esac
-  done < "$auth_conf"
-  if [[ -n "${ANTHROPIC_PROFILE:-}" ]]; then
-    echo "takt wrapper: ANTHROPIC_PROFILE=$ANTHROPIC_PROFILE (Claude API billing)" >&2
-  fi
-fi
-
-conf=".takt/agora.conf"
 # Commands that execute a workflow: `takt run`, `takt watch`, and pipeline mode
 # (`takt --pipeline ...`, used by takt-wt inside a prepared worktree).
+# Decided on the arguments as given, before the wrapper adds any.
 runs_workflow=false
 case "${1:-}" in
   run | watch) runs_workflow=true ;;
@@ -67,6 +94,125 @@ esac
 for arg in "$@"; do
   [[ "$arg" == "--pipeline" ]] && runs_workflow=true
 done
+
+# --- 1. environment --------------------------------------------------------
+
+work_dir="$HOME/.takt-work"
+private_dir="$HOME/.takt-private"
+work_root="$(canon "$HOME/work")"
+private_root="$(canon "$HOME/Documents/onclimb-industries")"
+
+project="$(git rev-parse --show-toplevel 2> /dev/null || pwd -P)"
+project="$(realpath "$project")"
+# Main checkout of a linked worktree (.takt/ is not copied into worktrees).
+main_checkout="$project"
+if common="$(git rev-parse --path-format=absolute --git-common-dir 2> /dev/null)" \
+  && [[ "$(basename "$common")" == ".git" ]]; then
+  main_checkout="$(realpath "$(dirname "$common")")"
+fi
+
+markers=""
+private_conf=""
+for dir in "$project" "$main_checkout"; do
+  for name in private.conf auth.conf; do
+    [[ -f "$dir/.takt/$name" ]] && markers="$markers $dir/.takt/$name"
+  done
+  if [[ -z "$private_conf" && -f "$dir/.takt/private.conf" ]]; then
+    private_conf="$dir/.takt/private.conf"
+  fi
+done
+
+mode=work
+if ! under "$project" "$work_root" && ! under "$main_checkout" "$work_root" \
+  && under "$project" "$private_root" && under "$main_checkout" "$private_root" \
+  && [[ -n "$private_conf" ]]; then
+  mode=private
+fi
+
+if [[ "$mode" == work ]]; then
+  if [[ -n "$markers" ]]; then
+    die "private settings in a work project:$markers (private.conf is honoured only under $private_root and never under $work_root). Remove it."
+  fi
+  if [[ -n "${TAKT_CONFIG_DIR:-}" && "$(canon "$TAKT_CONFIG_DIR")" == "$(canon "$private_dir")" ]]; then
+    die "TAKT_CONFIG_DIR is the private config ($TAKT_CONFIG_DIR) but $project is a work project (started from inside a private run?). Refusing."
+  fi
+
+  forbidden='opencode|openrouter|api_key|base_url|^[[:space:]]*assignments[[:space:]]*:'
+  for file in "$project/.takt/config.yaml" "$project/.takt/runtime.yaml" \
+    "$work_dir/config.yaml" "$work_dir/runtime.yaml"; do
+    [[ -f "$file" ]] || continue
+    hit="$(first_hit "$file" "$forbidden")"
+    [[ -z "$hit" ]] || die "work settings must not use private providers or API keys: $file:$hit"
+  done
+
+  prev=""
+  for arg in "$@"; do
+    value=""
+    case "$arg" in
+      --runtime-assignment | --runtime-assignment=* | --runtime-file | --runtime-file=*)
+        die "$arg is not allowed in work projects (named assignments are private-only)" ;;
+      --provider=* | --model=*) value="${arg#*=}" ;;
+    esac
+    [[ "$prev" == "--provider" || "$prev" == "--model" ]] && value="$arg"
+    if [[ -n "$value" ]] && grep -qEi 'opencode|openrouter' <<< "$value"; then
+      die "provider/model '$value' is not allowed in work projects"
+    fi
+    prev="$arg"
+  done
+
+  for name in $(compgen -e); do
+    case "$name" in
+      ANTHROPIC_* | CLAUDE_CODE_USE_* | OPENROUTER_* | OPENAI_API_KEY | OPENAI_BASE_URL \
+        | CODEX_API_KEY | OPENCODE_API_KEY | TAKT_*_API_KEY)
+        unset "$name" ;;
+    esac
+  done
+  mkdir -p "$work_dir/anthropic-empty"
+  [[ -z "$(ls -A "$work_dir/anthropic-empty")" ]] \
+    || die "$work_dir/anthropic-empty must stay empty (Anthropic profile lookup for work)"
+  export ANTHROPIC_CONFIG_DIR="$work_dir/anthropic-empty"
+  export TAKT_OPENCODE_PATH=/usr/bin/false
+  export TAKT_CONFIG_DIR="$work_dir"
+  echo "takt wrapper: work environment ($work_dir; Claude/Codex subscriptions)" >&2
+else
+  for dir in "$project" "$main_checkout"; do
+    [[ -f "$dir/.takt/auth.conf" ]] \
+      && die "$dir/.takt/auth.conf is replaced by .takt/private.conf (anthropic_profile=...). Remove auth.conf."
+  done
+  billing=api
+  anthropic_profile=takt
+  while IFS='=' read -r key value || [[ -n "$key" ]]; do
+    key="${key//[[:space:]]/}"
+    value="${value%%#*}"
+    value="${value//[[:space:]]/}"
+    case "$key" in
+      '' | \#*) ;;
+      billing) billing="$value" ;;
+      anthropic_profile) anthropic_profile="$value" ;;
+      *) die "unknown key '$key' in $private_conf" ;;
+    esac
+  done < "$private_conf"
+  billing="${TAKT_BILLING:-$billing}"
+
+  export TAKT_CONFIG_DIR="$private_dir"
+  case "$billing" in
+    api)
+      [[ -n "$anthropic_profile" ]] || die "anthropic_profile is empty in $private_conf"
+      export ANTHROPIC_PROFILE="$anthropic_profile"
+      echo "takt wrapper: private environment ($private_dir; Claude API, ANTHROPIC_PROFILE=$anthropic_profile)" >&2
+      ;;
+    subscription)
+      unset ANTHROPIC_PROFILE ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN TAKT_ANTHROPIC_API_KEY
+      set -- --runtime-assignment credit-out "$@"
+      echo "takt wrapper: private environment ($private_dir; credit-out: Claude subscription + OpenCode Go)" >&2
+      ;;
+    *) die "billing must be api or subscription, got '$billing' ($private_conf / TAKT_BILLING)" ;;
+  esac
+fi
+
+# --- 2. agora's design knowledge -------------------------------------------
+
+conf=".takt/agora.conf"
 $runs_workflow || exec "$real" "$@"
 [[ -f "$conf" ]] || exec "$real" "$@"
 

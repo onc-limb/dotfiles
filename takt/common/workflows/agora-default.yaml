@@ -3,7 +3,7 @@ description: builtin の default と同じ流れに、agora の設計知識（ag
 max_steps: 51
 initial_step: develop
 
-# Global workflow (dotfiles). install.sh copies it into ~/.takt/workflows/
+# Global workflow (dotfiles). install.sh copies it into each TAKT config dir (~/.takt-work, ~/.takt-private, ~/.takt)
 # because TAKT does not read workflows through symlinks; edit this file, not
 # the copy.
 #

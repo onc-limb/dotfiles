@@ -1,0 +1,39 @@
+# TAKT global config for the WORK environment (~/.takt-work, linked; ~/.takt,
+# copied). Work runs on the Claude subscription and the Codex subscription only:
+# no API keys, no opencode / openrouter, no base_url here (the takt wrapper
+# refuses to start when it finds them).
+language: ja
+
+# provider / model live in runtime.yaml (generated from takt/common/targets.yaml
+# and takt/work/profiles.yaml; mixing them here is a hard error).
+
+# Runs happen unattended: keep the Mac awake and open a PR when a task completes
+# (humans only decide whether to merge). Projects that must not open PRs set
+# auto_pr: false in their own .takt/config.yaml.
+prevent_sleep: true
+auto_pr: true
+draft_pr: false
+
+# Record phase-level usage locally to measure cost before tuning models.
+observability:
+  enabled: true
+  usage_events_phase: true
+
+# Use the Homebrew Codex CLI instead of the one bundled with takt's Codex SDK
+# (bundled 0.164.0 rejects gpt-6.2-astra for ChatGPT accounts; 0.169.1 accepts it).
+codex_cli_path: /opt/homebrew/bin/codex
+
+# When a step hits its usage limit, rerun it on the other subscription in a
+# fresh session instead of aborting. TAKT picks the first entry that is neither
+# the step's current provider+model nor one already tried for that step:
+# - Claude steps (Fable / Opus / Sonnet) -> Codex gpt-6.2-astra
+# - Codex gpt-6.2-sol steps -> gpt-6.2-astra first, then Claude Sonnet
+# - Codex gpt-6.2-astra steps -> Claude Sonnet
+# Entries take provider and model only; a Codex fallback runs at the effort in
+# ~/.codex/config.toml.
+rate_limit_fallback:
+  switch_chain:
+    - provider: codex
+      model: gpt-6.2-astra
+    - provider: claude-sdk
+      model: sonnet

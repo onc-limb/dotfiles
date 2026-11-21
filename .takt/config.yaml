@@ -13,5 +13,11 @@ workflow_overrides:
         - type: command
           name: takt-wrapper-syntax
           command: bash -n bin/takt
+        - type: command
+          name: takt-wrapper-tests
+          command: bash takt/tests/test_wrapper.sh && TEST_BASH=/bin/bash bash takt/tests/test_wrapper.sh
+        - type: command
+          name: takt-build-runtime-tests
+          command: python3 -m unittest discover -s takt/tests -p 'test_*.py'
     fix:
       quality_gates: *workflow_doctor

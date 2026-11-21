@@ -1,0 +1,43 @@
+# Roles -> provider/model for the PRIVATE environment (~/.takt-private).
+#
+# `roles` is the default assignment: everything on Claude, billed to the
+# Claude API (the wrapper exports ANTHROPIC_PROFILE for billing=api).
+#
+# `assignments.credit-out` is used once the API credits run out
+# (billing=subscription, or TAKT_BILLING=subscription for one command): the
+# wrapper drops ANTHROPIC_PROFILE so Claude runs on the subscription, and
+# passes --runtime-assignment credit-out. Only the roles listed there change;
+# they are the roles Codex plays in takt/work/profiles.yaml.
+roles:
+  planner:
+    provider: claude-sdk
+    model: opus
+  planner-top:
+    provider: claude-sdk
+    # Pinned: the "fable" alias resolved to claude-fable-5-1 (seen 2026-11-19).
+    model: claude-fable-5-2
+  judge:
+    provider: claude-sdk
+    model: opus
+  test-designer:
+    provider: claude-sdk
+    model: opus
+  implementer:
+    provider: claude-sdk
+    model: sonnet
+  implementer-retry:
+    provider: claude-sdk
+    model: opus
+  worker:
+    provider: claude-sdk
+    model: sonnet
+
+assignments:
+  credit-out:
+    implementer:
+      provider: opencode
+      model: opencode-go/kimi-k3.1-pro
+    implementer-retry:
+      # Same model until a stronger OpenCode Go model is chosen for retries.
+      provider: opencode
+      model: opencode-go/kimi-k3.1-pro
