@@ -1,0 +1,23 @@
+# TAKT global config for the PRIVATE environment (~/.takt-private, linked).
+# The takt wrapper uses it only for projects under ~/Documents/onclimb-industries
+# that have .takt/private.conf; everything else runs on takt/work/.
+language: ja
+
+# provider / model live in runtime.yaml (generated from takt/common/targets.yaml
+# and takt/private/profiles.yaml; mixing them here is a hard error).
+
+prevent_sleep: true
+auto_pr: true
+draft_pr: false
+
+observability:
+  enabled: true
+  usage_events_phase: true
+
+codex_cli_path: /opt/homebrew/bin/codex
+
+# No rate_limit_fallback on purpose: the chain is one list for every step, so a
+# fallback to opencode would also move planning and adjudication there when the
+# API credits run out. Instead the run stops; resume it on the subscription with
+#   TAKT_BILLING=subscription takt list   (retry -> "Resume failed position")
+# which selects the credit-out assignment of runtime.yaml.

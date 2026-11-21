@@ -50,6 +50,44 @@ create_link() {
     info "Linked: $src -> $dest"
 }
 
+# TAKT global config dir for one environment (takt/work or takt/private).
+# The dir also holds TAKT's managed SDKs and daemon state, so only these entries
+# are written: config.yaml (linked, or copied for ~/.takt), runtime.yaml
+# (generated from takt/common/targets.yaml + takt/<env>/profiles.yaml), facets/
+# (linked) and workflows/*.yaml (copied: TAKT rejects symlinked workflows, and a
+# symlinked workflows/ hides the builtins too).
+install_takt_dir() {
+    local dir="$1" env="$2" config_mode="$3"
+    local deny=""
+    [ "$env" = work ] && deny="--deny opencode --deny openrouter"
+
+    mkdir -p "$dir/workflows"
+    if [ "$config_mode" = link ]; then
+        create_link "$DOTFILES_DIR/takt/$env/config.yaml" "$dir/config.yaml"
+    else
+        [ -L "$dir/config.yaml" ] && rm "$dir/config.yaml"
+        cp "$DOTFILES_DIR/takt/$env/config.yaml" "$dir/config.yaml"
+        info "Copied: takt/$env/config.yaml -> $dir/config.yaml"
+    fi
+    [ -L "$dir/runtime.yaml" ] && rm "$dir/runtime.yaml"
+    # shellcheck disable=SC2086
+    python3 "$DOTFILES_DIR/takt/build-runtime.py" --env "$env" $deny -o "$dir/runtime.yaml"
+    info "Generated: $dir/runtime.yaml ($env)"
+    create_link "$DOTFILES_DIR/takt/common/facets" "$dir/facets"
+    for workflow in "$DOTFILES_DIR"/takt/common/workflows/*.yaml; do
+        [ -e "$workflow" ] || continue
+        cp "$workflow" "$dir/workflows/"
+        info "Copied workflow: $dir/workflows/$(basename "$workflow")"
+    done
+    for sdk in claude-sdk codex; do
+        [ -d "$dir/$sdk" ] || warn "$dir has no $sdk runtime: TAKT_CONFIG_DIR=$dir /opt/homebrew/bin/takt install $sdk"
+    done
+    if [ "$env" = work ] && [ -e "$dir/opencode" ]; then
+        error "$dir/opencode exists: remove it (OpenCode must not be installed for work)"
+        return 1
+    fi
+}
+
 main() {
     echo "========================================"
     echo "  Dotfiles Installation Script"
@@ -73,23 +111,19 @@ main() {
     create_link "$DOTFILES_DIR/zed/settings.json" "$HOME/.config/zed/settings.json"
     create_link "$DOTFILES_DIR/zed/keymap.json" "$HOME/.config/zed/keymap.json"
 
-    # TAKT configuration (~/.takt には SDK 本体や manager の状態も入るため中身を個別にリンク)
-    # workflows/・steps/・facet-pools 等は TAKT が symlink を拒否するのでリンクしない
-    # （workflows/ がリンクだと builtin を含む全ワークフローが読めなくなる。グローバルのワークフローは下で実ファイルとして写す）
-    create_link "$DOTFILES_DIR/takt/config.yaml" "$HOME/.takt/config.yaml"
-    create_link "$DOTFILES_DIR/takt/runtime.yaml" "$HOME/.takt/runtime.yaml"
-    create_link "$DOTFILES_DIR/takt/facets" "$HOME/.takt/facets"
-    # Global workflows are copied as regular files (TAKT rejects symlinked workflows).
-    # Edit takt/workflows/ in dotfiles and re-run install.sh; the copies are overwritten.
-    mkdir -p "$HOME/.takt/workflows"
-    for workflow in "$DOTFILES_DIR"/takt/workflows/*.yaml; do
-        [ -e "$workflow" ] || continue
-        cp "$workflow" "$HOME/.takt/workflows/"
-        info "Copied workflow: ~/.takt/workflows/$(basename "$workflow")"
-    done
-    # takt wrapper: writes agora's design knowledge as a policy before `takt run`
-    # in projects with .takt/agora.conf. ~/.local/bin comes before Homebrew in PATH.
+    # TAKT: one global config dir per environment (see takt/README.md).
+    # bin/takt picks ~/.takt-work or ~/.takt-private per project; ~/.takt is
+    # used only when takt starts without the wrapper, and gets a COPY of the work
+    # settings so nothing written there reaches the dotfiles sources.
+    install_takt_dir "$HOME/.takt-work" work link
+    install_takt_dir "$HOME/.takt-private" private link
+    install_takt_dir "$HOME/.takt" work copy
+    # takt wrapper: picks the TAKT environment (work / private) and writes agora's
+    # design knowledge as a policy before `takt run` in projects with
+    # .takt/agora.conf. ~/.local/bin comes before Homebrew in PATH.
     create_link "$DOTFILES_DIR/bin/takt" "$HOME/.local/bin/takt"
+    # takt-wt: runs a TAKT task inside a worktree cut beforehand, with git operations off.
+    create_link "$DOTFILES_DIR/bin/takt-wt" "$HOME/.local/bin/takt-wt"
 
     # Claude Code configuration (selective symlinks to ~/.claude/)
     create_link "$DOTFILES_DIR/claude/home/settings.json" "$HOME/.claude/settings.json"

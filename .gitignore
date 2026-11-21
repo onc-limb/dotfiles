@@ -1,2 +1,4 @@
 # Karabiner-Elements が保存のたびに書く世代バックアップ（差分ノイズになるため追跡しない）
 karabiner/automatic_backups/
+# Python のバイトコード（bin/ のスクリプトや takt/tests の実行で作られる）
+__pycache__/

@@ -1,0 +1,33 @@
+# Roles -> provider/model for the WORK environment (~/.takt-work, and the
+# ~/.takt copy used when takt is started without the wrapper).
+#
+# Work runs only on the Claude subscription and the Codex (ChatGPT)
+# subscription. Never add opencode, openrouter, base_url or API keys here:
+# build-runtime.py --deny and the takt wrapper refuse them.
+roles:
+  planner:
+    provider: claude-sdk
+    model: opus
+  planner-top:
+    provider: claude-sdk
+    # Pinned: the "fable" alias resolved to claude-fable-5-1 (seen 2026-11-19).
+    model: claude-fable-5-2
+  judge:
+    provider: claude-sdk
+    model: opus
+  test-designer:
+    provider: claude-sdk
+    model: opus
+  implementer:
+    provider: codex
+    model: gpt-6.2-sol
+    options:
+      reasoning_effort: high
+  implementer-retry:
+    provider: codex
+    model: gpt-6.2-astra
+    options:
+      reasoning_effort: high
+  worker:
+    provider: claude-sdk
+    model: sonnet

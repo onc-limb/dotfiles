@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# takt-wt: run a TAKT task inside a git worktree prepared beforehand, without
+# letting TAKT touch git (no branch, commit or push).
+#
+# Why: `takt run` always executes in an independent clone, commits as
+# "takt: <name>" with git hooks off by default, and names branches itself.
+# Here the worktree is cut first (or reused), TAKT edits files in it through
+# `takt --pipeline --skip-git`, and committing stays a separate, normal
+# `git commit` done by a human (so local hooks run and the message is ours).
+#
+# Usage:
+#   takt-wt --repo <main checkout> --worktrees <dir> --task-dir <name> --branch <name>
+#           [--base <branch>] [--workflow <name>] [--allow-dirty] [--dry-run]
+#
+#   --repo        main checkout of the repository (its .takt/ holds the config and tasks)
+#   --worktrees   directory that holds the worktrees; the worktree is <dir>/<branch>
+#   --task-dir    directory name under <repo>/.takt/tasks/ (order.md + attachments/)
+#   --branch      branch of the worktree. Created from --base when the worktree is missing
+#   --base        local branch to cut a new worktree from (default: staging).
+#                 The local branch must not be behind origin/<base> (fast-forward it first)
+#   --workflow    TAKT workflow (default: agora-default)
+#   --allow-dirty run even when the existing worktree has uncommitted changes
+#   --dry-run     prepare the worktree and print the takt command without running it
+#
+# It never commits, pushes or opens a PR. When TAKT finishes it prints the
+# changed files; review the diff, then commit by hand.
+set -euo pipefail
+
+die() { printf 'takt-wt: %s\n' "$*" >&2; exit 1; }
+log() { printf 'takt-wt: %s\n' "$*" >&2; }
+
+repo="" worktrees="" task_dir="" branch="" base="staging" workflow="agora-default"
+allow_dirty=false dry_run=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo) repo="${2:?}"; shift 2 ;;
+    --worktrees) worktrees="${2:?}"; shift 2 ;;
+    --task-dir) task_dir="${2:?}"; shift 2 ;;
+    --branch) branch="${2:?}"; shift 2 ;;
+    --base) base="${2:?}"; shift 2 ;;
+    --workflow) workflow="${2:?}"; shift 2 ;;
+    --allow-dirty) allow_dirty=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    -h | --help) sed -n '2,27p' "$0"; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+[[ -n "$repo" && -n "$worktrees" && -n "$task_dir" && -n "$branch" ]] \
+  || die "--repo, --worktrees, --task-dir and --branch are required (see --help)"
+
+repo="$(cd "$repo" && pwd)"
+src_takt="$repo/.takt"
+src_task="$src_takt/tasks/$task_dir"
+[[ -f "$src_task/order.md" ]] || die "task not found: $src_task/order.md"
+wt="$worktrees/$branch"
+
+# 1. Worktree: reuse it when it exists, otherwise cut it from the local base branch.
+if [[ -d "$wt" ]]; then
+  current="$(git -C "$wt" branch --show-current)"
+  [[ "$current" == "$branch" ]] || die "$wt is on branch '$current', not '$branch'"
+  if [[ -n "$(git -C "$wt" status --porcelain)" ]] && ! $allow_dirty; then
+    die "$wt has uncommitted changes; commit or stash them, or pass --allow-dirty"
+  fi
+  log "reusing worktree $wt"
+else
+  git -C "$repo" rev-parse --verify --quiet "refs/heads/$base" > /dev/null || die "local branch '$base' not found"
+  if git -C "$repo" rev-parse --verify --quiet "refs/remotes/origin/$base" > /dev/null; then
+    behind="$(git -C "$repo" rev-list --count "$base..origin/$base")"
+    [[ "$behind" == "0" ]] || die "local '$base' is $behind commit(s) behind origin/$base; run: git -C $repo merge --ff-only origin/$base (on $base)"
+  fi
+  mkdir -p "$worktrees"
+  git -C "$repo" worktree add -b "$branch" "$wt" "$base" >&2
+  log "created worktree $wt from $base"
+fi
+
+# 2. TAKT reads its project config from the cwd's .takt/, which a worktree does
+#    not have (.takt/ is untracked). Copy the config and the task into it.
+#    A linked worktree shares the main checkout's .git/info/exclude, so the copy
+#    stays out of commits only if .takt/ is ignored there: refuse otherwise.
+git -C "$wt" check-ignore -q .takt/config.yaml \
+  || die ".takt/ is not git-ignored in $wt; add /.takt/ to the repository's .git/info/exclude first"
+mkdir -p "$wt/.takt/tasks"
+for f in config.yaml runtime.yaml agora.conf; do
+  [[ -f "$src_takt/$f" ]] && cp "$src_takt/$f" "$wt/.takt/$f"
+done
+if [[ -d "$src_takt/facets" ]]; then
+  rm -rf "$wt/.takt/facets"
+  cp -R "$src_takt/facets" "$wt/.takt/facets"
+fi
+rm -rf "$wt/.takt/tasks/$task_dir"
+cp -R "$src_task" "$wt/.takt/tasks/$task_dir"
+
+task_text="Implement using only the files in \`.takt/tasks/$task_dir\`.
+Primary spec: \`.takt/tasks/$task_dir/order.md\`.
+Do not run git commit, git push or create a pull request; the human commits after reviewing the diff.
+Never use \`git commit --no-verify\`."
+
+# Snapshot of the worktree (index untouched): a tree object of every tracked and
+# untracked, non-ignored file. Comparing two snapshots shows what TAKT changed,
+# even when the worktree already had uncommitted work.
+snapshot_tree() {
+  local tmp_index
+  tmp_index="$(mktemp "$wt/.takt/takt-wt-index.XXXXXX")"
+  cp "$(git -C "$wt" rev-parse --path-format=absolute --git-path index)" "$tmp_index"
+  GIT_INDEX_FILE="$tmp_index" git -C "$wt" add -A
+  GIT_INDEX_FILE="$tmp_index" git -C "$wt" write-tree
+  rm -f "$tmp_index"
+}
+
+dirty=false
+[[ -n "$(git -C "$wt" status --porcelain)" ]] && dirty=true
+if $dirty; then
+  task_text="$task_text
+
+This worktree already contains uncommitted changes made for this task (work in progress).
+Before planning, read them with \`git status\` and \`git diff HEAD\`, and continue from them.
+Do not discard or redo them from scratch; change them only where the spec or a review requires it."
+fi
+
+# 3. Run TAKT through the dotfiles wrapper (it writes the agora policy from
+#    .takt/agora.conf before the run) with git operations disabled.
+cmd=(takt --pipeline --skip-git -w "$workflow" -t "$task_text")
+if $dry_run; then
+  log "dry run; would run in $wt:"
+  printf '  %q' "${cmd[@]}" >&2; printf '\n' >&2
+  exit 0
+fi
+mkdir -p "$wt/.takt/takt-wt"
+before="$(snapshot_tree)"
+stamp="$(date +%Y%m%dT%H%M%S)"
+printf '%s\n' "$before" > "$wt/.takt/takt-wt/$stamp-before.tree"
+log "snapshot before the run: tree $before (.takt/takt-wt/$stamp-before.tree)"
+
+log "running TAKT ($workflow) in $wt"
+status=0
+(cd "$wt" && "${cmd[@]}") || status=$?
+
+# 4. No commit here: show what TAKT changed and stop.
+after="$(snapshot_tree)"
+printf '%s\n' "$after" > "$wt/.takt/takt-wt/$stamp-after.tree"
+log "TAKT exited with $status. Files TAKT changed (git diff --stat $before $after):"
+git -C "$wt" diff --stat "$before" "$after" >&2
+log "full diff of the run: git -C $wt diff $before $after"
+exit "$status"

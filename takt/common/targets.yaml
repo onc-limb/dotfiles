@@ -1,0 +1,33 @@
+# Which role each TAKT step / persona plays. Shared by every environment.
+#
+# build-runtime.py turns this table plus an environment's profiles.yaml
+# (takt/work/, takt/private/) into that environment's runtime.yaml, so the
+# split of work between roles is written once: changing who implements here
+# changes the work environment (Codex) and the private credit-out assignment
+# (OpenCode Go) together.
+#
+# A value is a role name, or {ladder: [role, ...]} for a TAKT promotion ladder
+# (stage 0 first; a step with `promotion: [{at: N}]` moves up a stage on its
+# Nth visit).
+# Assignment priority in TAKT 0.75: steps > tags > personas > defaults.
+
+# Reviewers, internal agents (selector, assistant, judges) and anything unlisted.
+defaults: worker
+
+personas:
+  # plan / replan / fix-plan. Strong model first; the top model only when a
+  # step that declares promotion runs again.
+  planner:
+    ladder: [planner, planner-top]
+  review-adjudicator: judge
+  supervisor: judge
+  # implement / fix / reimplement / fix-retry / write_tests
+  coder: implementer
+
+steps:
+  # coder-persona step that designs the tests: keep it on the judgment model.
+  write_tests: test-designer
+  architecture-review: judge
+  # Retries after the implementer could not pass.
+  reimplement: implementer-retry
+  fix-retry: implementer-retry

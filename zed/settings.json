@@ -7,6 +7,12 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
+  "ui_font_size": 14.0,
+  "terminal": {
+    "font_weight": 400.0,
+    "font_size": 10.0
+  },
+  "expand_excerpt_lines": 5,
   "edit_predictions": {
     "mode": "eager"
   },
@@ -22,6 +28,7 @@
   "diff_view_style": "split",
   "cli_default_open_behavior": "existing_window",
   "git_panel": {
+    "tree_view": false,
     "dock": "left"
   },
   "agent": {
@@ -76,8 +83,7 @@
     "light": "Zed (Default)",
     "dark": "Zed (Default)"
   },
-  "ui_font_size": 16,
-  "buffer_font_size": 15,
+  "buffer_font_size": 12.0,
   "languages": {
     "HTML": {
       // ASSUMPTION: 「インデント幅は小さめ」を 2 スペースと解釈した
@@ -92,8 +98,8 @@
     },
   },
   "theme": {
-    "mode": "light",
+    "mode": "system",
     "light": "One Light",
-    "dark": "One Dark",
+    "dark": "One Light"
   },
 }
