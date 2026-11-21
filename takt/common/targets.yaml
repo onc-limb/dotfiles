@@ -25,6 +25,12 @@ personas:
   coder: implementer
 
 steps:
+  # Plan review (agora-development-core). The reviewer persona is referenced
+  # by file path, so it is routed by step name rather than by persona.
+  plan-review: judge
+  plan-review-2: judge
+  # The one re-plan after a plan review sends the plan back: top model.
+  plan-revise: planner-top
   # coder-persona step that designs the tests: keep it on the judgment model.
   write_tests: test-designer
   architecture-review: judge

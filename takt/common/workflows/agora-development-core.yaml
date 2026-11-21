@@ -1,11 +1,42 @@
-name: development-core
-description: 計画・テスト・実装・ピアレビュー・裁定済み指摘の修正・要件確認を組み合わせる共有開発フロー。
+name: agora-development-core
+description: builtin の development-core に、計画の見直し（差し戻しは 1 回まで・2 回目の計画は最上位モデル）と、修正の周回の上限・範囲の関門を持つピアレビューを足した開発フロー。
 all_steps:
   rules:
     - ref: findings-handling
       position: before_instruction
     - ref: plain-terminology
       position: before_instruction
+
+# Global workflow (dotfiles). install.sh copies it into each TAKT config dir.
+# Edit this file, not the copy.
+#
+# Fork of the builtin `development-core` (TAKT 0.75, ja), called from
+# agora-default. Changes:
+# - plan -> plan-review (new). The reviewer (judge role) checks five things
+#   (agora-plan-review.md). Outcomes: ok -> write_tests; plan can be fixed
+#   within the task -> plan-revise; the task itself is unclear / needs a design
+#   decision / is too big -> ABORT (back to the human).
+# - At most one send-back, as the shape of the graph: plan-revise ->
+#   plan-review-2, and plan-review-2 has no way back to planning.
+#   (TAKT's `when(...)` cannot read visit counts and loop_monitors are judged
+#   by an LLM.) plan-revise is routed to the top planning model by
+#   takt/common/targets.yaml (steps.plan-revise: planner-top).
+# - plan has `promotion: [{at: 2}]`: when write_tests sends the task back to
+#   plan, the second plan climbs the planner ladder (Opus -> Fable).
+# - peer_review_workflow defaults to agora-peer-review (cap on fix rounds).
+# - New param verification_policy, passed to peer review's fix verification
+#   (the builtin passes review_policy there), so that the caller can limit
+#   fix verification to the finding's acceptance criteria.
+# When TAKT is upgraded, diff the builtin development-core.yaml against this
+# file.
+
+personas:
+  plan-reviewer: ../facets/personas/agora-plan-reviewer.md
+instructions:
+  plan-review: ../facets/instructions/agora-plan-review.md
+  plan-revise: ../facets/instructions/agora-plan-revise.md
+report_formats:
+  plan-review: ../facets/output-contracts/agora-plan-review.md
 
 subworkflow:
   callable: true
@@ -28,7 +59,7 @@ subworkflow:
       default: peer-review-suite-base
     peer_review_workflow:
       type: workflow_ref
-      default: peer-review
+      default: ./agora-peer-review.yaml
     plan_policy:
       type: facet_ref[]
       facet_kind: policy
@@ -143,6 +174,13 @@ subworkflow:
       type: facet_ref
       facet_kind: instruction
       default: supervise-review-resolution
+    verification_policy:
+      type: facet_ref[]
+      facet_kind: policy
+      default:
+        - coding
+        - testing
+        - review
 initial_step: plan
 
 facet_pools:
@@ -160,6 +198,8 @@ steps:
     capabilities:
       - readonly
     uses: development-core-plan
+    promotion:
+      - at: 2
     with:
       plan_policy:
         $param: plan_policy
@@ -171,10 +211,98 @@ steps:
         $param: plan_report_format
     rules:
       - condition: 要件が明確で実装可能
-        next: write_tests
+        next: plan-review
       - condition: ユーザーが質問をしている（実装タスクではない）
         next: COMPLETE
       - condition: 要件が不明確、情報不足
+        next: ABORT
+
+  - name: plan-review
+    description: 計画が指示書のゴールと受け入れ条件で閉じているか、範囲外の扱い・受け入れの実行可能性・設計判断・大きさを確かめる
+    input_reports:
+      from_step: plan
+      reports:
+        - plan.md
+    edit: false
+    capabilities: readonly
+    persona: plan-reviewer
+    policy:
+      $param: plan_policy
+    knowledge:
+      $param: plan_knowledge
+    instruction: plan-review
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: plan-review.md
+          format: plan-review
+    rules:
+      - condition: 結果が「進める」（5 項目をすべて満たす）
+        next: write_tests
+      - condition: 結果が「計画を直す」（指示書の情報だけで計画を直せば満たせる）
+        next: plan-revise
+      - condition: 結果が「人に戻す」（指示書のゴール・受け入れ条件が曖昧、指示書に無い設計判断が要る、または 1 回の run には大きすぎる）
+        next: ABORT
+
+  - name: plan-revise
+    description: 計画の見直しの指摘に沿って、最上位の計画モデルで計画を作り直す（差し戻しは 1 回まで）
+    input_reports:
+      - from_step: plan
+        reports:
+          - plan.md
+      - from_step: plan-review
+        reports:
+          - plan-review.md
+    tags:
+      - plan
+    edit: false
+    capabilities: readonly
+    persona: planner
+    policy:
+      - contract-change
+      - $param: plan_policy
+    knowledge:
+      $param: plan_knowledge
+    instruction:
+      - $param: plan_instruction
+      - plan-revise
+    output_contracts:
+      report:
+        - name: plan.md
+          format:
+            $param: plan_report_format
+    rules:
+      - condition: 見直しの指摘を解消した計画を作った
+        next: plan-review-2
+      - condition: 指示書の情報だけでは見直しの指摘を解消できない
+        next: ABORT
+
+  - name: plan-review-2
+    description: 作り直した計画を同じ 5 項目で確かめる。ここからは計画へ戻さない
+    input_reports:
+      - from_step: plan-revise
+        reports:
+          - plan.md
+      - from_step: plan-review
+        reports:
+          - plan-review.md
+    edit: false
+    capabilities: readonly
+    persona: plan-reviewer
+    policy:
+      $param: plan_policy
+    knowledge:
+      $param: plan_knowledge
+    instruction: plan-review
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: plan-review.md
+          format: plan-review
+    rules:
+      - condition: 結果が「進める」（5 項目をすべて満たす）
+        next: write_tests
+      - condition: 結果が「人に戻す」（5 項目のどれかを満たさない）
         next: ABORT
 
   - name: replan
@@ -314,7 +442,7 @@ steps:
       verification_knowledge:
         $param: review_knowledge
       verification_policy:
-        $param: review_policy
+        $param: verification_policy
       final_gate_policy:
         $param: review_policy
       fix_plan_instruction:

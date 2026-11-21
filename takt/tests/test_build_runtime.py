@@ -67,6 +67,15 @@ class WorkEnvironment(unittest.TestCase):
         models = [doc["provider"]["profiles"][n]["model"] for n in ladder]
         self.assertEqual(models, ["opus", "claude-fable-5-2"])
 
+    def test_plan_review_runs_on_the_judge_and_the_revised_plan_on_fable(self):
+        for env, deny in (("work", DENY), ("private", ())):
+            provider = generated(env, deny)["provider"]
+            steps = provider["targets"]["steps"]
+            model = lambda step: provider["profiles"][steps[step]["profile"]]["model"]
+            self.assertEqual(model("plan-review"), "opus", env)
+            self.assertEqual(model("plan-review-2"), "opus", env)
+            self.assertEqual(model("plan-revise"), "claude-fable-5-2", env)
+
 
 class PrivateEnvironment(unittest.TestCase):
     def test_default_assignment_is_claude_only(self):

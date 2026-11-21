@@ -1,11 +1,25 @@
-name: peer-review
-description: 専門並列ピアレビュー（+ ai-antipattern-review-2nd）→ 指摘裁定 → 共通修正ループ後、supervisor が要件充足を最終裁定する。
+name: agora-peer-review
+description: builtin の peer-review と同じ流れに、修正の周回の上限（修正 3 回で人に戻す）を足したピアレビュー。
 all_steps:
   rules:
     - ref: findings-handling
       position: before_instruction
     - ref: plain-terminology
       position: before_instruction
+
+# Global workflow (dotfiles). install.sh copies it into each TAKT config dir.
+# Edit this file, not the copy.
+#
+# Fork of the builtin `peer-review` (TAKT 0.75, ja). Called from
+# agora-development-core through its `peer_review_workflow` param. Changes:
+# - loop_monitors: a hard cap on review -> fix rounds (see below).
+# - instructions: `loop-cap` for the cap's judge.
+# The scope gate on adjudication and on fix verification is passed in as
+# policies (review_policy_additions / verification_policy) by the caller.
+# When TAKT is upgraded, diff the builtin peer-review.yaml against this file.
+
+instructions:
+  loop-cap: ../facets/instructions/agora-loop-cap.md
 
 subworkflow:
   callable: true
@@ -114,36 +128,22 @@ facet_pools:
     uses: takt-security-review-facets
 initial_step: initial-reviewers
 loop_monitors:
+  # Hard cap on review -> fix rounds (replaces the builtin judged monitors,
+  # which can keep answering "healthy"). final-gate is ignored so that the
+  # REJECT path (reviewers -> adjudication -> final-gate -> remediation) counts
+  # as the same round. The cycle only counts follow-up rounds (the first round
+  # starts at initial-reviewers), so threshold 2 stops before the 3rd
+  # follow-up review: at most 3 remediation runs in one peer review.
+  # The judge has a single rule, so any decision it returns is ABORT; it only
+  # writes down for the human where the loop stalled. (If the judge itself
+  # fails, TAKT continues with the natural transition.)
   - cycle:
       - reviewers
       - review-adjudication
       - remediation
-    threshold: 3
-    judge:
-      input_reports:
-        - from_step: remediation
-          reports: [fix-plan.md, fix-report.md, fix-verification.md]
-          history: {previous: 2}
-        - from_step: review-adjudication
-          reports: [review-resolution.md]
-          history: {previous: 2}
-      persona: supervisor
-      instruction: loop-monitor-reviewers-fix
-      rules:
-        - condition: 健全（修正進捗があり、報告内容も収束している）
-          next: reviewers
-        - condition: 修正未完了または報告未収束だが、次のレビュー・修正が実行可能である
-          next: reviewers
-        - condition: 修正方針の前提を変える必要があり、再計画が実行可能である
-          next: remediation
-        - condition: 要件を満たす実現可能な打開手段がない
-          next: ABORT
-  - cycle:
-      - reviewers
-      - review-adjudication
+    ignore_steps:
       - final-gate
-      - remediation
-    threshold: 3
+    threshold: 2
     judge:
       input_reports:
         - from_step: remediation
@@ -153,15 +153,9 @@ loop_monitors:
           reports: [review-resolution.md]
           history: {previous: 2}
       persona: supervisor
-      instruction: loop-monitor-reviewers-fix
+      instruction: loop-cap
       rules:
-        - condition: 健全（修正進捗があり、報告内容も収束している）
-          next: reviewers
-        - condition: 修正未完了または報告未収束だが、次のレビュー・修正が実行可能である
-          next: reviewers
-        - condition: 修正方針の前提を変える必要があり、再計画が実行可能である
-          next: remediation
-        - condition: 要件を満たす実現可能な打開手段がない
+        - condition: 修正の周回が上限に達した。残っている問題と止めた理由を記録し、人の判断に戻す
           next: ABORT
 steps:
   - name: initial-reviewers

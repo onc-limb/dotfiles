@@ -9,16 +9,17 @@ initial_step: design
 #
 # Implements the flow of `agora guide` (design -> ADR -> hand over -> implement
 # -> verify -> report) for the delegated mode. Planning, implementation and
-# peer review reuse the builtin `development-core` (TAKT 0.75) through
+# peer review reuse `agora-development-core` (a fork of the builtin
+# development-core with a plan review; see that file) through
 # `workflow_call`, the same way `agora-default` does. The `agora-design` policy
 # is written by the `takt` wrapper (dotfiles bin/takt) into the project's
 # .takt/facets/policies/ from `agora knowledge show` before each `takt run` in
 # a project that has .takt/agora.conf.
-# When TAKT is upgraded, diff the builtin development-core.yaml against the
-# args below.
+# When TAKT is upgraded, diff the builtin development-core.yaml against
+# agora-development-core.yaml and the args below.
 #
 # How the loop back to design is built (see also takt/common/facets/):
-# - `development-core` only returns COMPLETE or ABORT, so "an ADR is missing"
+# - `agora-development-core` only returns COMPLETE or ABORT, so "an ADR is missing"
 #   cannot be a return value of the call. Both results go to an independent
 #   `verify` step (fresh context, reads ADRs + code only), which is the one
 #   place that sorts the outcome:
@@ -34,7 +35,7 @@ initial_step: design
 #   and the reason stays in verification.md. TAKT's `when(...)` cannot read
 #   step iteration counts and loop_monitors are judged by an LLM, so neither
 #   gives a hard limit.
-# - The ADRs reach the implementers and reviewers inside `development-core`
+# - The ADRs reach the implementers and reviewers inside `agora-development-core`
 #   through `input_reports` on the call (design.md is inherited by the child
 #   steps). design.md carries a fixed section of rules for implementers and
 #   reviewers (output contract agora-design-flow-design.md). Facet names in
@@ -75,9 +76,9 @@ steps:
         next: develop
 
   - name: develop
-    description: 設計レポートの ADR を守るべき設計として渡し、計画・テスト・実装・ピアレビューを development-core で進める
+    description: 設計レポートの ADR を守るべき設計として渡し、計画・計画の見直し・テスト・実装・ピアレビューを agora-development-core で進める
     kind: workflow_call
-    call: development-core
+    call: ./agora-development-core.yaml
     input_reports:
       - from_step: design
         reports: [design.md]
@@ -114,7 +115,8 @@ steps:
       development_policy:
         - coding
         - agora-design
-      review_policy_additions: []
+      review_policy_additions:
+        - agora-review-scope
       review_policy:
         - coding
         - testing
@@ -125,6 +127,13 @@ steps:
         - architecture
         - unit-testing
         - e2e-testing
+      verification_policy:
+        - coding
+        - testing
+        - review
+        - architecture
+        - agora-design
+        - agora-fix-verification-scope
     rules:
       - condition: COMPLETE
         next: verify
@@ -180,9 +189,9 @@ steps:
         next: develop_r1
 
   - name: develop_r1
-    description: 設計レポートの ADR を守るべき設計として渡し、計画・テスト・実装・ピアレビューを development-core で進める
+    description: 設計レポートの ADR を守るべき設計として渡し、計画・計画の見直し・テスト・実装・ピアレビューを agora-development-core で進める
     kind: workflow_call
-    call: development-core
+    call: ./agora-development-core.yaml
     input_reports:
       - from_step: redesign_1
         reports: [design-r1.md]
@@ -245,9 +254,9 @@ steps:
         next: develop_r2
 
   - name: develop_r2
-    description: 設計レポートの ADR を守るべき設計として渡し、計画・テスト・実装・ピアレビューを development-core で進める
+    description: 設計レポートの ADR を守るべき設計として渡し、計画・計画の見直し・テスト・実装・ピアレビューを agora-development-core で進める
     kind: workflow_call
-    call: development-core
+    call: ./agora-development-core.yaml
     input_reports:
       - from_step: redesign_2
         reports: [design-r2.md]
