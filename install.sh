@@ -78,11 +78,11 @@ main() {
     # （workflows/ がリンクだと builtin を含む全ワークフローが読めなくなる。グローバルのワークフローは下で実ファイルとして写す）
     create_link "$DOTFILES_DIR/takt/config.yaml" "$HOME/.takt/config.yaml"
     create_link "$DOTFILES_DIR/takt/runtime.yaml" "$HOME/.takt/runtime.yaml"
-    create_link "$DOTFILES_DIR/takt/facets" "$HOME/.takt/facets"
+    create_link "$DOTFILES_DIR/takt/common/facets" "$HOME/.takt/facets"
     # Global workflows are copied as regular files (TAKT rejects symlinked workflows).
-    # Edit takt/workflows/ in dotfiles and re-run install.sh; the copies are overwritten.
+    # Edit takt/common/workflows/ in dotfiles and re-run install.sh; the copies are overwritten.
     mkdir -p "$HOME/.takt/workflows"
-    for workflow in "$DOTFILES_DIR"/takt/workflows/*.yaml; do
+    for workflow in "$DOTFILES_DIR"/takt/common/workflows/*.yaml; do
         [ -e "$workflow" ] || continue
         cp "$workflow" "$HOME/.takt/workflows/"
         info "Copied workflow: ~/.takt/workflows/$(basename "$workflow")"

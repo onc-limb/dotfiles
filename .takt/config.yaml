@@ -9,7 +9,7 @@ workflow_overrides:
       quality_gates: &workflow_doctor
         - type: command
           name: takt-workflow-doctor
-          command: takt workflow doctor takt/workflows/*.yaml
+          command: takt workflow doctor takt/common/workflows/*.yaml
         - type: command
           name: takt-wrapper-syntax
           command: bash -n bin/takt
