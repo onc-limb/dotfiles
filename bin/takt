@@ -5,7 +5,7 @@
 # so the knowledge has to be on disk before `takt run` starts. In a project
 # that opts in with .takt/agora.conf, this wrapper writes
 # .takt/facets/policies/agora-design.md from `agora knowledge show` right
-# before `takt run` / `takt watch`, then runs the real takt. Everywhere else it
+# before `takt run` / `takt watch` / `takt --pipeline`, then runs the real takt. Everywhere else it
 # only passes through.
 #
 # .takt/agora.conf (KEY=VALUE, all optional):
@@ -58,10 +58,16 @@ if [[ -f "$auth_conf" && -z "${ANTHROPIC_PROFILE:-}" ]]; then
 fi
 
 conf=".takt/agora.conf"
+# Commands that execute a workflow: `takt run`, `takt watch`, and pipeline mode
+# (`takt --pipeline ...`, used by takt-wt inside a prepared worktree).
+runs_workflow=false
 case "${1:-}" in
-  run | watch) ;;
-  *) exec "$real" "$@" ;;
+  run | watch) runs_workflow=true ;;
 esac
+for arg in "$@"; do
+  [[ "$arg" == "--pipeline" ]] && runs_workflow=true
+done
+$runs_workflow || exec "$real" "$@"
 [[ -f "$conf" ]] || exec "$real" "$@"
 
 lang=""

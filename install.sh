@@ -90,6 +90,8 @@ main() {
     # takt wrapper: writes agora's design knowledge as a policy before `takt run`
     # in projects with .takt/agora.conf. ~/.local/bin comes before Homebrew in PATH.
     create_link "$DOTFILES_DIR/bin/takt" "$HOME/.local/bin/takt"
+    # takt-wt: runs a TAKT task inside a worktree cut beforehand, with git operations off.
+    create_link "$DOTFILES_DIR/bin/takt-wt" "$HOME/.local/bin/takt-wt"
 
     # Claude Code configuration (selective symlinks to ~/.claude/)
     create_link "$DOTFILES_DIR/claude/home/settings.json" "$HOME/.claude/settings.json"
