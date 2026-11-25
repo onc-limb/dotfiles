@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The dashboard tab: work environments (tabs) of the current WezTerm workspace and their agents.
+"""The dashboard tab: work environments (tabs) of the current WezTerm workspace and their agents,
+plus the TAKT jobs of every project (queued, running, waiting, and what finished in the last day).
 
     workspace
       └ work environment (= tab, one directory / worktree)   -> a card
@@ -342,6 +343,193 @@ def quotas():
     return [latest[t] for t in sorted(latest)]
 
 
+# ---------------------------------------------------------------- TAKT jobs
+#
+# Read straight from each project's .takt/tasks.yaml (the record TAKT keeps of queued / run tasks) and, for a
+# running task, the clone's .takt/runs/<slug>/meta.json (current step and iteration). This is a stopgap until ols
+# exposes the same through `ols status --format json` (ols #305); then the dashboard reads that instead.
+
+# Colon-separated globs of tasks.yaml files to show
+TAKT_GLOBS = os.environ.get(
+    "AGENT_DASHBOARD_TAKT_GLOBS",
+    "~/Documents/*/projects/*/.takt/tasks.yaml:~/Documents/*/.takt/tasks.yaml:~/dotfiles/.takt/tasks.yaml",
+)
+TAKT_RECENT_SEC = 24 * 3600
+TAKT_RECENT_MAX = 5
+TAKT_LABEL = {
+    "running": "実行中", "stale": "止まった", "pending": "待ち", "idle": "未起動",
+    "completed": "完了", "failed": "失敗", "exceeded": "上限",
+}
+
+
+def takt_color(kind):
+    return {
+        "running": PAL["accent_text"], "pending": PAL["warn"], "idle": PAL["muted"], "stale": PAL["error"],
+        "completed": PAL["ok"], "failed": PAL["error"], "exceeded": PAL["error"],
+    }.get(kind, PAL["muted"])
+
+
+def _scalar(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        v = v[1:-1]
+    return None if v in ("null", "~", "") else v
+
+
+def parse_tasks_yaml(text):
+    """The subset of YAML TAKT writes to tasks.yaml: `tasks:` then a list of flat maps, one level of nested
+    maps (failure, resume_point) and folded / literal block scalars. Not a general YAML parser."""
+    tasks, item, nested, block = [], None, None, None
+    for raw in text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if block is not None:
+            target, key, base = block
+            if indent > base:
+                target[key] = (target.get(key) or "") + (" " if target.get(key) else "") + raw.strip()
+                continue
+            block = None
+        line = raw.strip()
+        if indent == 2 and line.startswith("- "):
+            item, nested = {}, None
+            tasks.append(item)
+            line, indent = line[2:], 4
+        if item is None or ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        if indent <= 4:
+            target, nested = item, None
+        elif nested is not None:
+            target = nested
+        else:
+            continue
+        if value.strip() in (">-", ">", "|", "|-"):
+            target[key] = ""
+            block = (target, key, indent)
+        elif value.strip() == "" and target is item:
+            nested = item[key] = {}
+        else:
+            target[key] = _scalar(value)
+    return tasks
+
+
+def iso_ts(s):
+    if not s:
+        return None
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def pid_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def failure_kind(task):
+    """Tell the failure apart the way the TAKT verification found (ols docs/verification/takt-external-control.md)."""
+    if task.get("status") == "exceeded":
+        return "手順の上限"
+    err = ((task.get("failure") or {}).get("error") or "") if isinstance(task.get("failure"), dict) else ""
+    low = err.lower()
+    if "rate limit" in low:
+        return "利用枠切れ"
+    if "no user input" in low:
+        return "入力待ちで停止"
+    if "abort" in low or "interrupt" in low:
+        return "中断"
+    return err or "失敗"
+
+
+def takt_jobs():
+    """[(project, [job])], each job a dict with kind / name / detail / ts. Only projects with something to show."""
+    import glob
+    out = []
+    now = time.time()
+    seen = set()
+    for pattern in TAKT_GLOBS.split(":"):
+        for path in sorted(glob.glob(os.path.expanduser(pattern))):
+            real = os.path.realpath(path)
+            if real in seen or "takt-worktrees" in real:
+                continue
+            seen.add(real)
+            try:
+                with open(path) as f:
+                    tasks = parse_tasks_yaml(f.read())
+            except OSError:
+                continue
+            project = os.path.basename(os.path.dirname(os.path.dirname(path)))
+            running_any = any(t.get("status") == "running" and pid_alive(t.get("owner_pid")) for t in tasks)
+            active, recent = [], []
+            for t in tasks:
+                st = t.get("status")
+                job = {"name": t.get("name") or "?", "detail": "", "ts": None}
+                if st == "running":
+                    job["kind"] = "running" if pid_alive(t.get("owner_pid")) else "stale"
+                    job["ts"] = iso_ts(t.get("started_at"))
+                    meta = read_json(os.path.join(t.get("worktree_path") or "", ".takt", "runs", t.get("run_slug") or "", "meta.json")) or {}
+                    if meta.get("currentStep"):
+                        job["detail"] = f"{meta['currentStep']}  #{meta.get('currentIteration', '?')}"
+                    elif job["kind"] == "stale":
+                        job["detail"] = "プロセスが無い"
+                    active.append(job)
+                elif st == "pending":
+                    job["kind"] = "pending" if running_any else "idle"
+                    job["ts"] = iso_ts(t.get("created_at"))
+                    job["detail"] = "前のタスクの後" if running_any else "takt run を待っている"
+                    active.append(job)
+                elif st in ("completed", "failed", "exceeded"):
+                    done = iso_ts(t.get("completed_at"))
+                    if done is None or now - done > TAKT_RECENT_SEC:
+                        continue
+                    job["kind"], job["ts"] = st, done
+                    if st == "completed":
+                        pr = t.get("pr_url") or ""
+                        m = re.search(r"/pull/(\d+)", pr)
+                        job["detail"] = f"PR #{m[1]}" if m else "PR なし"
+                    else:
+                        step = (t.get("failure") or {}).get("step") if isinstance(t.get("failure"), dict) else None
+                        job["detail"] = failure_kind(t) + (f"  ({step})" if step else "")
+                    recent.append(job)
+            recent.sort(key=lambda j: -(j["ts"] or 0))
+            jobs = active + recent[:TAKT_RECENT_MAX]
+            if jobs:
+                out.append((project, jobs))
+    return out
+
+
+def since(ts):
+    """Elapsed time for a running job (経過)."""
+    if not ts:
+        return ""
+    sec = int(time.time() - ts)
+    return f"{sec // 3600}時間{sec % 3600 // 60}分" if sec >= 3600 else f"{sec // 60}分"
+
+
+def takt_line(project, job, inner):
+    kind = job["kind"]
+    color = takt_color(kind)
+    line = Line()
+    line.add(" " + fit(TAKT_LABEL.get(kind, kind), 8) + " ", fg=ink_of(color), bg=tint(color), bold=True)
+    line.add(" ")
+    line.add(fit(project, 14), fg=PAL["muted"])
+    time_text = since(job["ts"]) if kind in ("running", "stale") else age(job["ts"])
+    rest = inner - line.w - 12
+    name_w = max(8, min(36, rest // 2))
+    line.add(fit(job["name"], name_w), fg=PAL["fg"], bold=True)
+    line.add(" ")
+    line.add(fit(job["detail"], max(0, rest - name_w - 1)), fg=color if kind in ("failed", "exceeded", "stale") else PAL["muted"])
+    line.add(fit(time_text, 12, "right"), fg=PAL["muted"])
+    return line
+
+
 # ---------------------------------------------------------------- formatting
 
 
@@ -371,7 +559,9 @@ def age(ts):
         return f"{sec}秒前"
     if sec < 3600:
         return f"{sec // 60}分前"
-    return f"{sec // 3600}時間前"
+    if sec < 86400:
+        return f"{sec // 3600}時間前"
+    return f"{sec // 86400}日前"
 
 
 def pct_color(pct):
@@ -591,6 +781,20 @@ def layout(workspace, envs, items, cursor, flat):
         qcols = max(1, min(len(qs), (avail + GAP) // (CARD_MIN_W + GAP)))
         qw = min(CARD_MAX_W, (avail - GAP * (qcols - 1)) // qcols)
         scr.put_cards([(quota_card(q, qw), qw) for q in qs], qcols)
+        scr.blank()
+
+    # ---- TAKT jobs (queued / running / waiting, and what finished in the last day)
+    projects = takt_jobs()
+    if projects:
+        jobs = [(p, j) for p, js in projects for j in js]
+        counts = {k: sum(1 for _, j in jobs if j["kind"] == k) for k in ("running", "pending", "idle", "stale", "failed", "exceeded")}
+        summary = f"  実行中 {counts['running']}   待ち {counts['pending'] + counts['idle']}"
+        if counts["stale"] + counts["failed"] + counts["exceeded"]:
+            summary += f"   要確認 {counts['stale'] + counts['failed'] + counts['exceeded']}"
+        scr.put(section("TAKT", 6).add(summary, fg=PAL["muted"]).add("   直近 24 時間の完了・失敗を含む", fg=PAL["muted"]))
+        tw = avail
+        body = [takt_line(p, j, tw - 4) for p, j in jobs]
+        scr.put_cards([(card(tw, Line().add("ジョブ", fg=ink(6), bold=True), body, title_bg=deco(6)), tw)], 1)
         scr.blank()
 
     # ---- environments / agents
