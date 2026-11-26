@@ -784,18 +784,20 @@ def layout(workspace, envs, items, cursor, flat):
         scr.blank()
 
     # ---- TAKT jobs (queued / running / waiting, and what finished in the last day)
-    projects = takt_jobs()
-    if projects:
-        jobs = [(p, j) for p, js in projects for j in js]
-        counts = {k: sum(1 for _, j in jobs if j["kind"] == k) for k in ("running", "pending", "idle", "stale", "failed", "exceeded")}
-        summary = f"  実行中 {counts['running']}   待ち {counts['pending'] + counts['idle']}"
-        if counts["stale"] + counts["failed"] + counts["exceeded"]:
-            summary += f"   要確認 {counts['stale'] + counts['failed'] + counts['exceeded']}"
-        scr.put(section("TAKT", 6).add(summary, fg=PAL["muted"]).add("   直近 24 時間の完了・失敗を含む", fg=PAL["muted"]))
-        tw = avail
+    # Always drawn, so an empty queue reads as "nothing running" rather than "the TAKT section is missing"
+    jobs = [(p, j) for p, js in takt_jobs() for j in js]
+    counts = {k: sum(1 for _, j in jobs if j["kind"] == k) for k in ("running", "pending", "idle", "stale", "failed", "exceeded")}
+    summary = f"  実行中 {counts['running']}   待ち {counts['pending'] + counts['idle']}"
+    if counts["stale"] + counts["failed"] + counts["exceeded"]:
+        summary += f"   要確認 {counts['stale'] + counts['failed'] + counts['exceeded']}"
+    scr.put(section("TAKT", 6).add(summary, fg=PAL["muted"]).add("   直近 24 時間の完了・失敗を含む", fg=PAL["muted"]))
+    tw = avail
+    if jobs:
         body = [takt_line(p, j, tw - 4) for p, j in jobs]
-        scr.put_cards([(card(tw, Line().add("ジョブ", fg=ink(6), bold=True), body, title_bg=deco(6)), tw)], 1)
-        scr.blank()
+    else:
+        body = [Line().add(" ジョブはありません (待ち・実行中・直近 24 時間の完了なし)", fg=PAL["muted"])]
+    scr.put_cards([(card(tw, Line().add("ジョブ", fg=ink(6), bold=True), body, title_bg=deco(6)), tw)], 1)
+    scr.blank()
 
     # ---- environments / agents
     ncols = max(1, (avail + GAP) // (CARD_MIN_W + GAP))
