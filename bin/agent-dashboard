@@ -348,11 +348,21 @@ def quotas():
 # Read straight from each project's .takt/tasks.yaml (the record TAKT keeps of queued / run tasks) and, for a
 # running task, the clone's .takt/runs/<slug>/meta.json (current step and iteration). This is a stopgap until ols
 # exposes the same through `ols status --format json` (ols #305); then the dashboard reads that instead.
+#
+# Runs started by bin/takt-wt (`takt --pipeline` in a prepared worktree) never enter tasks.yaml, so their
+# .takt/runs/<slug>/meta.json is read directly. meta.json has no PID: a "running" run counts as alive while a
+# takt process has that worktree as its working directory.
 
 # Colon-separated globs of tasks.yaml files to show
 TAKT_GLOBS = os.environ.get(
     "AGENT_DASHBOARD_TAKT_GLOBS",
-    "~/Documents/*/projects/*/.takt/tasks.yaml:~/Documents/*/.takt/tasks.yaml:~/dotfiles/.takt/tasks.yaml",
+    "~/Documents/*/projects/*/.takt/tasks.yaml:~/Documents/*/.takt/tasks.yaml:~/dotfiles/.takt/tasks.yaml"
+    ":~/work/*/projects/*/.takt/tasks.yaml:~/work/*/.takt/tasks.yaml",
+)
+# Colon-separated globs of run meta.json files of takt-wt runs (<worktrees>/<project>/<worktree>/.takt/runs/<slug>)
+TAKT_RUN_GLOBS = os.environ.get(
+    "AGENT_DASHBOARD_TAKT_RUN_GLOBS",
+    "~/Documents/*/projects/worktrees/*/*/.takt/runs/*/meta.json:~/work/*/projects/worktrees/*/*/.takt/runs/*/meta.json",
 )
 TAKT_RECENT_SEC = 24 * 3600
 TAKT_RECENT_MAX = 5
@@ -448,11 +458,99 @@ def failure_kind(task):
     return err or "失敗"
 
 
+def takt_live_dirs():
+    """Working directories of the takt processes running now, or None when they cannot be found out."""
+    try:
+        ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    pids = []
+    for line in ps.splitlines():
+        parts = line.split()
+        # takt is a node script: `node /path/to/bin/takt ...`
+        if len(parts) >= 3 and os.path.basename(parts[1]) == "node" and os.path.basename(parts[2]) == "takt":
+            pids.append(parts[0])
+    if not pids:
+        return set()
+    try:
+        res = subprocess.run(["lsof", "-a", "-p", ",".join(pids), "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return {os.path.realpath(line[1:]) for line in res.stdout.splitlines() if line.startswith("n")}
+
+
+def takt_queue_jobs(tasks, now):
+    """(active, recent, worktree paths of running tasks) from one tasks.yaml."""
+    running_any = any(t.get("status") == "running" and pid_alive(t.get("owner_pid")) for t in tasks)
+    active, recent, running_dirs = [], [], set()
+    for t in tasks:
+        st = t.get("status")
+        job = {"name": t.get("name") or "?", "detail": "", "ts": None}
+        if st == "running":
+            job["kind"] = "running" if pid_alive(t.get("owner_pid")) else "stale"
+            job["ts"] = iso_ts(t.get("started_at"))
+            if t.get("worktree_path"):
+                running_dirs.add(os.path.realpath(t["worktree_path"]))
+            meta = read_json(os.path.join(t.get("worktree_path") or "", ".takt", "runs", t.get("run_slug") or "", "meta.json")) or {}
+            if meta.get("currentStep"):
+                job["detail"] = f"{meta['currentStep']}  #{meta.get('currentIteration', '?')}"
+            elif job["kind"] == "stale":
+                job["detail"] = "プロセスが無い"
+            active.append(job)
+        elif st == "pending":
+            job["kind"] = "pending" if running_any else "idle"
+            job["ts"] = iso_ts(t.get("created_at"))
+            job["detail"] = "前のタスクの後" if running_any else "takt run を待っている"
+            active.append(job)
+        elif st in ("completed", "failed", "exceeded"):
+            done = iso_ts(t.get("completed_at"))
+            if done is None or now - done > TAKT_RECENT_SEC:
+                continue
+            job["kind"], job["ts"] = st, done
+            if st == "completed":
+                pr = t.get("pr_url") or ""
+                m = re.search(r"/pull/(\d+)", pr)
+                job["detail"] = f"PR #{m[1]}" if m else "PR なし"
+            else:
+                step = (t.get("failure") or {}).get("step") if isinstance(t.get("failure"), dict) else None
+                job["detail"] = failure_kind(t) + (f"  ({step})" if step else "")
+            recent.append(job)
+    return active, recent, running_dirs
+
+
+def takt_run_job(meta, live, now):
+    """One takt-wt run as a job, or None when it is neither running nor finished in the last day."""
+    st = meta.get("status")
+    job = {"name": "", "detail": "", "ts": None}
+    if st == "running":
+        job["kind"] = "running" if live else "stale"
+        job["ts"] = iso_ts(meta.get("startTime"))
+        if meta.get("currentStep"):
+            job["detail"] = f"{meta['currentStep']}  #{meta.get('currentIteration', '?')}"
+        if not live:
+            job["detail"] = (job["detail"] + "  " if job["detail"] else "") + "プロセスが無い"
+        return job
+    if st in ("completed", "failed", "exceeded", "aborted"):
+        done = iso_ts(meta.get("endTime") or meta.get("updatedAt"))
+        if done is None or now - done > TAKT_RECENT_SEC:
+            return None
+        job["kind"] = "failed" if st == "aborted" else st
+        job["ts"] = done
+        if st == "completed":
+            job["detail"] = "takt-wt (差分のみ、PR なし)"
+        else:
+            step = (meta.get("failure") or {}).get("step") if isinstance(meta.get("failure"), dict) else None
+            job["detail"] = failure_kind(meta) + (f"  ({step})" if step else "")
+        return job
+    return None
+
+
 def takt_jobs():
     """[(project, [job])], each job a dict with kind / name / detail / ts. Only projects with something to show."""
     import glob
-    out = []
     now = time.time()
+    acc = {}  # project -> (active, recent), in the order first seen
+    queued_dirs = set()
     seen = set()
     for pattern in TAKT_GLOBS.split(":"):
         for path in sorted(glob.glob(os.path.expanduser(pattern))):
@@ -466,42 +564,42 @@ def takt_jobs():
             except OSError:
                 continue
             project = os.path.basename(os.path.dirname(os.path.dirname(path)))
-            running_any = any(t.get("status") == "running" and pid_alive(t.get("owner_pid")) for t in tasks)
-            active, recent = [], []
-            for t in tasks:
-                st = t.get("status")
-                job = {"name": t.get("name") or "?", "detail": "", "ts": None}
-                if st == "running":
-                    job["kind"] = "running" if pid_alive(t.get("owner_pid")) else "stale"
-                    job["ts"] = iso_ts(t.get("started_at"))
-                    meta = read_json(os.path.join(t.get("worktree_path") or "", ".takt", "runs", t.get("run_slug") or "", "meta.json")) or {}
-                    if meta.get("currentStep"):
-                        job["detail"] = f"{meta['currentStep']}  #{meta.get('currentIteration', '?')}"
-                    elif job["kind"] == "stale":
-                        job["detail"] = "プロセスが無い"
-                    active.append(job)
-                elif st == "pending":
-                    job["kind"] = "pending" if running_any else "idle"
-                    job["ts"] = iso_ts(t.get("created_at"))
-                    job["detail"] = "前のタスクの後" if running_any else "takt run を待っている"
-                    active.append(job)
-                elif st in ("completed", "failed", "exceeded"):
-                    done = iso_ts(t.get("completed_at"))
-                    if done is None or now - done > TAKT_RECENT_SEC:
-                        continue
-                    job["kind"], job["ts"] = st, done
-                    if st == "completed":
-                        pr = t.get("pr_url") or ""
-                        m = re.search(r"/pull/(\d+)", pr)
-                        job["detail"] = f"PR #{m[1]}" if m else "PR なし"
-                    else:
-                        step = (t.get("failure") or {}).get("step") if isinstance(t.get("failure"), dict) else None
-                        job["detail"] = failure_kind(t) + (f"  ({step})" if step else "")
-                    recent.append(job)
-            recent.sort(key=lambda j: -(j["ts"] or 0))
-            jobs = active + recent[:TAKT_RECENT_MAX]
-            if jobs:
-                out.append((project, jobs))
+            active, recent, running_dirs = takt_queue_jobs(tasks, now)
+            queued_dirs |= running_dirs
+            a, r = acc.setdefault(project, ([], []))
+            a += active
+            r += recent
+
+    runs = []
+    for pattern in TAKT_RUN_GLOBS.split(":"):
+        for path in sorted(glob.glob(os.path.expanduser(pattern))):
+            real = os.path.realpath(path)
+            if real in seen:
+                continue
+            seen.add(real)
+            # <worktrees>/<project>/<worktree>/.takt/runs/<slug>/meta.json
+            wt = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(real))))
+            if wt in queued_dirs:
+                continue
+            meta = read_json(path)
+            if isinstance(meta, dict):
+                runs.append((wt, meta))
+    live = takt_live_dirs() if any(m.get("status") == "running" for _, m in runs) else set()
+    for wt, meta in runs:
+        # When the process list cannot be read, trust meta.json rather than call every run stopped
+        job = takt_run_job(meta, live is None or wt in live, now)
+        if job is None:
+            continue
+        job["name"] = os.path.basename(wt)
+        a, r = acc.setdefault(os.path.basename(os.path.dirname(wt)), ([], []))
+        (a if job["kind"] in ("running", "stale") else r).append(job)
+
+    out = []
+    for project, (active, recent) in acc.items():
+        recent.sort(key=lambda j: -(j["ts"] or 0))
+        jobs = active + recent[:TAKT_RECENT_MAX]
+        if jobs:
+            out.append((project, jobs))
     return out
 
 
