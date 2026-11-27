@@ -11,12 +11,20 @@
 # Nth visit).
 # Assignment priority in TAKT 0.75: steps > tags > personas > defaults.
 
-# Reviewers, internal agents (selector, assistant, judges) and anything unlisted.
+# Reviewers, the assistant seat and anything unlisted.
 defaults: worker
 
+# TAKT's internal seats (only `selector` and `assistant` exist; a seat takes a
+# fixed role, not a ladder). The selector only picks IDs from a list (which
+# reviewers to run, which implement / fix variant), one request each: cheapest
+# model. The status judgment phase (Phase 3) is not a seat: TAKT 0.75 runs it
+# on the step's own model (status-judgment-phase.js), so it cannot be moved.
+internal_agents:
+  selector: router
+
 personas:
-  # plan / replan / fix-plan. Strong model first; the top model only when a
-  # step that declares promotion runs again.
+  # plan / replan / fix-plan. `planner` first; `planner-top` only when a step
+  # that declares promotion runs again (both Opus for now, see profiles.yaml).
   planner:
     ladder: [planner, planner-top]
   review-adjudicator: judge

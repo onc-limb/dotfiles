@@ -19,10 +19,11 @@ all_steps:
 # - At most one send-back, as the shape of the graph: plan-revise ->
 #   plan-review-2, and plan-review-2 has no way back to planning.
 #   (TAKT's `when(...)` cannot read visit counts and loop_monitors are judged
-#   by an LLM.) plan-revise is routed to the top planning model by
+#   by an LLM.) plan-revise is routed to the planner-top role by
 #   takt/common/targets.yaml (steps.plan-revise: planner-top).
+#   planner-top is Opus for now: Fable is not used inside TAKT workflows.
 # - plan has `promotion: [{at: 2}]`: when write_tests sends the task back to
-#   plan, the second plan climbs the planner ladder (Opus -> Fable).
+#   plan, the second plan climbs the planner ladder (planner -> planner-top).
 # - peer_review_workflow defaults to agora-peer-review (cap on fix rounds).
 # - New param verification_policy, passed to peer review's fix verification
 #   (the builtin passes review_policy there), so that the caller can limit

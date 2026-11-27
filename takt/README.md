@@ -65,6 +65,10 @@ TAKT_BILLING=codex takt list
 ## モデルの割当
 
 - `common/targets.yaml`: どのステップ・persona にどの役割を当てるか（共通の表）。
+  - 振り分けだけをする内部の役（`internal_agents.selector`。どのレビューを動かすかなどを選ぶ）は `router`（Haiku）。
+  - 最後の確認（`final-gate`・`final-gate-direct`）・設計のレビュー・裁定・計画・テスト設計は Opus。
+    最後の確認を Sonnet に下げない（裁定を省いた回は、ここが要件を Opus で確かめる唯一のステップになる）。
+  - 判定のフェーズ（結果をルールに当てはめる Phase 3）は、TAKT 0.75 ではステップと同じモデルで動き、別のモデルにできない。
 - `work/profiles.yaml`・`private/profiles.yaml`: 役割に当てるモデル。プライベートの `assignments.credit-out` は、
   仕事用で Codex が受け持つ役割（`implementer`・`implementer-retry`）だけを OpenCode Go に替える。
   `assignments.go-out` は、同じ役割を仕事用と同じ Codex のモデルに替える。実装の順は Claude API → OpenCode Go → Codex。
@@ -84,10 +88,11 @@ TAKT_BILLING=codex takt list
     5. 1 回の run に収まる大きさ
   - 見直しの結果ごとの行き先:
     - 進める → テストの作成へ。
-    - 計画を直す → `plan-revise`（最上位の計画モデル）→ `plan-review-2` へ。
+    - 計画を直す → `plan-revise`（`planner-top`。いまは Opus）→ `plan-review-2` へ。
     - 人に戻す → 中止。
   - 差し戻しは 1 回まで。`plan-review-2` からは計画へ戻る道がない。
-- **計画の昇格**: テストの作成から計画へ戻ったときは、2 回目の `plan` が Opus から Fable に上がる（`promotion: [{at: 2}]`）。
+- **計画の昇格**: テストの作成から計画へ戻ったときは、2 回目の `plan` が `planner` から `planner-top` に上がる（`promotion: [{at: 2}]`）。
+  いまはどちらも Opus。TAKT のワークフローでは Fable を使わない（最上位のモデルが要る判断は、job を書く時点で済ませる）。
 - **修正の周回の上限**: レビュー → 裁定 → 修正の周回は、修正 3 回で止めて人に戻す。止めたときは、判定役が残っている問題と止めた理由を書く。
 - **裁定の省略**: 最初のレビューで全員が承認したら、裁定を飛ばして最後の確認（`final-gate-direct`）へ進む。
   - 最後の確認には「裁定が無い」ことを伝える指示（`agora-final-gate-direct`）を足す。裁定が見るはずだった、レビューの「指摘にしなかった懸念」と計画の「留意点」も、ここで確かめる。

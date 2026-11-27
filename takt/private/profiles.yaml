@@ -21,8 +21,11 @@ roles:
     model: opus
   planner-top:
     provider: claude-sdk
-    # Pinned: the "fable" alias resolved to claude-fable-5-1 (seen 2026-11-19).
-    model: claude-fable-5-2
+    # Opus on purpose (2026-11-23): Fable is not used inside TAKT workflows.
+    # Judgment that needs the top model is done when the job is written,
+    # before it is handed to TAKT. The role stays so the ladder can be raised
+    # again in one place.
+    model: opus
   judge:
     provider: claude-sdk
     model: opus
@@ -38,6 +41,9 @@ roles:
   worker:
     provider: claude-sdk
     model: sonnet
+  router:
+    provider: claude-sdk
+    model: haiku
 
 assignments:
   credit-out:

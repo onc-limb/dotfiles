@@ -61,20 +61,44 @@ class WorkEnvironment(unittest.TestCase):
             self.assertEqual(profiles[targets["steps"][step]["profile"]]["provider"], "codex")
         self.assertEqual(profiles[targets["steps"]["write_tests"]["profile"]]["provider"], "claude-sdk")
 
-    def test_planner_starts_on_opus_and_climbs_to_fable(self):
+    def test_planner_ladder_stays_on_opus(self):
         doc = generated("work", DENY)
         ladder = doc["provider"]["targets"]["personas"]["planner"]["ladder"]
         models = [doc["provider"]["profiles"][n]["model"] for n in ladder]
-        self.assertEqual(models, ["opus", "claude-fable-5-2"])
+        self.assertEqual(models, ["opus", "opus"])
 
-    def test_plan_review_runs_on_the_judge_and_the_revised_plan_on_fable(self):
+    def test_selector_runs_on_haiku_and_final_gate_on_opus(self):
+        for env, deny in (("work", DENY), ("private", ())):
+            provider = generated(env, deny)["provider"]
+            profiles, targets = provider["profiles"], provider["targets"]
+            selector = targets["internal_agents"]["selector"]["profile"]
+            self.assertEqual(profiles[selector]["model"], "haiku", env)
+            # The final gate is routed by its persona, not by step name: when
+            # adjudication is skipped it is the only judge-model check left.
+            self.assertNotIn("final-gate", targets["steps"], env)
+            self.assertNotIn("final-gate-direct", targets["steps"], env)
+            supervisor = targets["personas"]["supervisor"]["profile"]
+            self.assertEqual(profiles[supervisor]["model"], "opus", env)
+            # The review that found real problems stays on the judgment model.
+            arch = targets["steps"]["architecture-review"]["profile"]
+            self.assertEqual(profiles[arch]["model"], "opus", env)
+
+    def test_no_profile_uses_fable(self):
+        # Fable is kept out of TAKT workflows: top-model judgment happens when
+        # the job is written, before TAKT runs.
+        for env, deny in (("work", DENY), ("private", ())):
+            profiles = generated(env, deny)["provider"]["profiles"]
+            for name, spec in profiles.items():
+                self.assertNotIn("fable", spec["model"], f"{env}: {name}")
+
+    def test_plan_review_and_the_revised_plan_run_on_opus(self):
         for env, deny in (("work", DENY), ("private", ())):
             provider = generated(env, deny)["provider"]
             steps = provider["targets"]["steps"]
             model = lambda step: provider["profiles"][steps[step]["profile"]]["model"]
             self.assertEqual(model("plan-review"), "opus", env)
             self.assertEqual(model("plan-review-2"), "opus", env)
-            self.assertEqual(model("plan-revise"), "claude-fable-5-2", env)
+            self.assertEqual(model("plan-revise"), "opus", env)
 
 
 class PrivateEnvironment(unittest.TestCase):
@@ -164,6 +188,11 @@ class Errors(unittest.TestCase):
     def test_role_missing_from_an_environment_fails(self):
         self.edit("work/profiles.yaml", lambda d: d["roles"].pop("judge"))
         with self.assertRaisesRegex(build_runtime.BuildError, "roles not defined: judge"):
+            build_runtime.build("work", DENY, self.root)
+
+    def test_internal_agent_with_a_ladder_fails(self):
+        self.edit("common/targets.yaml", lambda d: d["internal_agents"].update(selector={"ladder": ["router", "worker"]}))
+        with self.assertRaisesRegex(build_runtime.BuildError, "takes a role name"):
             build_runtime.build("work", DENY, self.root)
 
     def test_assignment_overriding_an_unknown_role_fails(self):

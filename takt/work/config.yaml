@@ -26,7 +26,7 @@ codex_cli_path: /opt/homebrew/bin/codex
 # When a step hits its usage limit, rerun it on the other subscription in a
 # fresh session instead of aborting. TAKT picks the first entry that is neither
 # the step's current provider+model nor one already tried for that step:
-# - Claude steps (Fable / Opus / Sonnet) -> Codex gpt-6.2-astra
+# - Claude steps (Opus / Sonnet) -> Codex gpt-6.2-astra
 # - Codex gpt-6.2-sol steps -> gpt-6.2-astra first, then Claude Sonnet
 # - Codex gpt-6.2-astra steps -> Claude Sonnet
 # Entries take provider and model only; a Codex fallback runs at the effort in

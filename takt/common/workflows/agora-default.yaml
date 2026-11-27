@@ -10,7 +10,8 @@ initial_step: develop
 # Mirrors the builtin `default` workflow (TAKT 0.75), with these changes:
 # - calls agora-development-core (plan review, cap on fix rounds) instead of
 #   the builtin development-core;
-# - appends the `agora-design` policy;
+# - appends the `agora-design` policy (and repeats the builtin testing /
+#   development policies, adding architecture for the coder);
 # - review_policy_additions: agora-review-scope (reviewers and adjudication
 #   send out-of-scope findings to follow-up tasks);
 # - verification_policy: review policy + agora-fix-verification-scope (fix
@@ -49,11 +50,20 @@ steps:
       plan_policy:
         - design-planning
         - agora-design
+      # The builtin defaults (development-core) are coding + testing for
+      # testing_policy and coding + testing + ai-antipattern for
+      # development_policy; setting the param replaces the list, so they are
+      # repeated here. architecture is added to development_policy so the coder
+      # knows the criteria architecture-review judges with (fewer fix rounds).
       testing_policy:
         - coding
+        - testing
         - agora-design
       development_policy:
         - coding
+        - testing
+        - ai-antipattern
+        - architecture
         - agora-design
       review_policy_additions:
         - agora-review-scope

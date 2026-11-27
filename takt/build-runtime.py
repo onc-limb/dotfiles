@@ -44,6 +44,10 @@ def load(path: Path) -> dict:
     return data
 
 
+# Sections of common/targets.yaml that map a name to a role.
+TARGET_KINDS = ("personas", "steps", "tags", "internal_agents")
+
+
 def role_refs(value) -> list[str]:
     if isinstance(value, str):
         return [value]
@@ -61,7 +65,7 @@ def assignment_entry(value, rename) -> dict:
 def build_section(targets: dict, rename) -> tuple[dict, dict]:
     defaults = assignment_entry(targets["defaults"], rename)
     out: dict = {}
-    for kind in ("personas", "steps", "tags"):
+    for kind in TARGET_KINDS:
         entries = targets.get(kind) or {}
         if entries:
             out[kind] = {name: assignment_entry(v, rename) for name, v in entries.items()}
@@ -92,8 +96,10 @@ def build(env: str, deny: list[str], root: Path = HERE) -> str:
         raise BuildError("common/targets.yaml: `defaults` is required")
 
     used = set(role_refs(targets["defaults"]))
-    for kind in ("personas", "steps", "tags"):
-        for value in (targets.get(kind) or {}).values():
+    for kind in TARGET_KINDS:
+        for name, value in (targets.get(kind) or {}).items():
+            if kind == "internal_agents" and not isinstance(value, str):
+                raise BuildError(f"targets: internal_agents.{name} takes a role name, not a ladder")
             used.update(role_refs(value))
     missing = sorted(used - set(roles))
     if missing:
