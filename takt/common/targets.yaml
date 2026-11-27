@@ -34,6 +34,10 @@ steps:
   # coder-persona step that designs the tests: keep it on the judgment model.
   write_tests: test-designer
   architecture-review: judge
+  # final-gate / final-gate-direct are not listed: they run on the supervisor
+  # persona's judge. When the initial reviewers all approve, agora-peer-review
+  # skips adjudication, and the final gate is then the only judge-model check
+  # of the requirements, so it must not be moved to the worker model.
   # Retries after the implementer could not pass.
   reimplement: implementer-retry
   fix-retry: implementer-retry

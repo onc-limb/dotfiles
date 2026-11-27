@@ -80,6 +80,40 @@ class FixRoundCap(unittest.TestCase):
 
 
 @unittest.skipUnless(installed_takt() and shutil.which("node"), "TAKT or node not installed")
+class AdjudicationSkip(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.review = load("agora-peer-review")
+
+    def test_initial_approval_skips_adjudication(self):
+        # COMPLETE (every reviewer approved) / needs_fix
+        self.assertEqual(step(self.review, "initial-reviewers")["next"], ["final-gate-direct", "review-adjudication"])
+
+    def test_follow_up_rounds_keep_adjudication(self):
+        # After a fix, adjudication is what records that the findings are closed.
+        self.assertEqual(step(self.review, "reviewers")["next"], ["review-adjudication", "review-adjudication"])
+
+    def test_direct_gate_reject_goes_to_adjudication(self):
+        # APPROVE / REJECT / BLOCKED (returns need_replan). Remediation reads
+        # the ruling of review-adjudication, which has not run on this path.
+        self.assertEqual(step(self.review, "final-gate-direct")["next"], ["COMPLETE", "review-adjudication", None])
+        self.assertEqual(step(self.review, "final-gate")["next"], ["COMPLETE", "remediation", None])
+
+    def test_direct_gate_is_told_there_is_no_ruling(self):
+        text = (TAKT_DIR / "common" / "facets" / "instructions" / "agora-final-gate-direct.md").read_text()
+        self.assertIn("レビューの裁定を経ていません", text)
+        workflow = yaml.safe_load((WORKFLOWS / "agora-peer-review.yaml").read_text())
+        self.assertEqual(
+            workflow["instructions"]["final-gate-direct"], "../facets/instructions/agora-final-gate-direct.md"
+        )
+        direct = next(s for s in workflow["steps"] if s["name"] == "final-gate-direct")
+        self.assertEqual(
+            direct["instruction"],
+            [{"$param": "final_gate_instruction"}, "final-gate-direct", "review-remediation-problem-tracking"],
+        )
+
+
+@unittest.skipUnless(installed_takt() and shutil.which("node"), "TAKT or node not installed")
 class Callers(unittest.TestCase):
     def check(self, workflow: dict):
         calls = [s for s in workflow["steps"] if s["kind"] == "workflow_call"]
