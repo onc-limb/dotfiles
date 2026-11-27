@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The dashboard tab: work environments (tabs) of the current WezTerm workspace and their agents,
-plus the TAKT jobs of every project (queued, running, waiting, and what finished in the last day).
+plus the TAKT jobs of every project (queued, running, waiting, finished and waiting for a person (open PR /
+uncommitted changes) until settled, and other finished ones of the last day).
 
     workspace
       └ work environment (= tab, one directory / worktree)   -> a card
@@ -364,8 +365,16 @@ TAKT_RUN_GLOBS = os.environ.get(
     "AGENT_DASHBOARD_TAKT_RUN_GLOBS",
     "~/Documents/*/projects/worktrees/*/*/.takt/runs/*/meta.json:~/work/*/projects/worktrees/*/*/.takt/runs/*/meta.json",
 )
+# A finished job stays while it waits for a person (its PR is open / its takt-wt worktree has uncommitted changes)
+# and goes as soon as it is settled (PR merged or closed / the changes committed). Jobs that cannot be told apart
+# that way (failed, no PR, gh or git unavailable) fall back to the last TAKT_RECENT_SEC, TAKT_RECENT_MAX per project.
 TAKT_RECENT_SEC = 24 * 3600
 TAKT_RECENT_MAX = 5
+TAKT_REVIEW_MAX_SEC = 7 * 86400  # a job waiting for a person is dropped after this, so an abandoned one does not stay forever
+TAKT_WT_TTL_SEC = 30  # how long a worktree's git status is reused
+TAKT_PR_TTL_SEC = 300  # how long an open PR's state is reused (merged / closed are final and kept)
+TAKT_PR_TIMEOUT_SEC = 20
+TAKT_PR_PARALLEL = 4  # gh calls at once (the first redraw would otherwise start one per PR in every tasks.yaml)
 TAKT_LABEL = {
     "running": "実行中", "stale": "止まった", "pending": "待ち", "idle": "未起動",
     "completed": "完了", "failed": "失敗", "exceeded": "上限",
@@ -479,8 +488,67 @@ def takt_live_dirs():
     return {os.path.realpath(line[1:]) for line in res.stdout.splitlines() if line.startswith("n")}
 
 
+_pr_cache = {}  # PR URL -> (state or None, checked at)
+_pr_procs = {}  # PR URL -> (Popen, started at)
+
+
+def pr_state(url):
+    """"OPEN" / "MERGED" / "CLOSED", or None while unknown. `gh` runs in the background so a slow call never holds
+    up a redraw: the first calls return None and a later one picks up the answer."""
+    now = time.time()
+    running = _pr_procs.get(url)
+    if running:
+        proc, started = running
+        if proc.poll() is not None:
+            out = proc.stdout.read().strip() if proc.returncode == 0 else ""
+            proc.stdout.close()
+            _pr_cache[url] = (out or None, now)
+            del _pr_procs[url]
+        elif now - started > TAKT_PR_TIMEOUT_SEC:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+            _pr_cache[url] = (None, now)
+            del _pr_procs[url]
+    state, checked = _pr_cache.get(url, (None, None))
+    if state in ("MERGED", "CLOSED") or url in _pr_procs or (checked is not None and now - checked < TAKT_PR_TTL_SEC):
+        return state
+    if len(_pr_procs) >= TAKT_PR_PARALLEL:
+        return state
+    try:
+        proc = subprocess.Popen(
+            ["gh", "pr", "view", url, "--json", "state", "--jq", ".state"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        )
+        _pr_procs[url] = (proc, now)
+    except OSError:
+        _pr_cache[url] = (None, now)
+    return state
+
+
+_wt_cache = {}  # worktree -> ((uncommitted files, HEAD commit time) or None, checked at)
+
+
+def worktree_state(wt):
+    """(number of uncommitted files, HEAD commit time) of a worktree, or None when git cannot tell."""
+    hit = _wt_cache.get(wt)
+    if hit and time.time() - hit[1] < TAKT_WT_TTL_SEC:
+        return hit[0]
+    info = None
+    try:
+        st = subprocess.run(["git", "-C", wt, "status", "--porcelain"], capture_output=True, text=True, timeout=2)
+        head = subprocess.run(["git", "-C", wt, "log", "-1", "--format=%ct"], capture_output=True, text=True, timeout=2)
+        if st.returncode == 0 and head.returncode == 0:
+            info = (len([l for l in st.stdout.splitlines() if l.strip()]), int(head.stdout.strip() or 0) or None)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    _wt_cache[wt] = (info, time.time())
+    return info
+
+
 def takt_queue_jobs(tasks, now):
-    """(active, recent, worktree paths of running tasks) from one tasks.yaml."""
+    """(active, finished, worktree paths of running tasks) from one tasks.yaml.
+    A finished job with "review" set waits for a person and is shown regardless of TAKT_RECENT_MAX."""
     running_any = any(t.get("status") == "running" and pid_alive(t.get("owner_pid")) for t in tasks)
     active, recent, running_dirs = [], [], set()
     for t in tasks:
@@ -504,12 +572,20 @@ def takt_queue_jobs(tasks, now):
             active.append(job)
         elif st in ("completed", "failed", "exceeded"):
             done = iso_ts(t.get("completed_at"))
-            if done is None or now - done > TAKT_RECENT_SEC:
+            if done is None:
                 continue
             job["kind"], job["ts"] = st, done
-            if st == "completed":
-                pr = t.get("pr_url") or ""
-                m = re.search(r"/pull/(\d+)", pr)
+            pr = (t.get("pr_url") or "") if st == "completed" else ""
+            m = re.search(r"/pull/(\d+)", pr)
+            state = pr_state(pr) if m and now - done <= TAKT_REVIEW_MAX_SEC else None
+            if state in ("MERGED", "CLOSED"):
+                continue
+            if state == "OPEN":
+                job["review"] = True
+                job["detail"] = f"PR #{m[1]} レビュー待ち"
+            elif now - done > TAKT_RECENT_SEC:
+                continue
+            elif st == "completed":
                 job["detail"] = f"PR #{m[1]}" if m else "PR なし"
             else:
                 step = (t.get("failure") or {}).get("step") if isinstance(t.get("failure"), dict) else None
@@ -518,8 +594,9 @@ def takt_queue_jobs(tasks, now):
     return active, recent, running_dirs
 
 
-def takt_run_job(meta, live, now):
-    """One takt-wt run as a job, or None when it is neither running nor finished in the last day."""
+def takt_run_job(meta, live, now, wt):
+    """The latest takt-wt run of a worktree as a job, or None when there is nothing to show: it is neither
+    running, waiting for its changes to be committed, nor finished (with nothing to commit) in the last day."""
     st = meta.get("status")
     job = {"name": "", "detail": "", "ts": None}
     if st == "running":
@@ -532,13 +609,24 @@ def takt_run_job(meta, live, now):
         return job
     if st in ("completed", "failed", "exceeded", "aborted"):
         done = iso_ts(meta.get("endTime") or meta.get("updatedAt"))
-        if done is None or now - done > TAKT_RECENT_SEC:
+        if done is None:
             return None
         job["kind"] = "failed" if st == "aborted" else st
         job["ts"] = done
         if st == "completed":
-            job["detail"] = "takt-wt (差分のみ、PR なし)"
+            info = worktree_state(wt) if now - done <= TAKT_REVIEW_MAX_SEC else None
+            if info and info[0]:
+                job["review"] = True
+                job["detail"] = f"takt-wt 未コミット {info[0]} 件"
+                return job
+            if info and info[1] and info[1] >= done:
+                return None  # committed after the run: settled
+            if now - done > TAKT_RECENT_SEC:
+                return None
+            job["detail"] = "takt-wt (変更なし)" if info else "takt-wt (差分のみ、PR なし)"
         else:
+            if now - done > TAKT_RECENT_SEC:
+                return None
             step = (meta.get("failure") or {}).get("step") if isinstance(meta.get("failure"), dict) else None
             job["detail"] = failure_kind(meta) + (f"  ({step})" if step else "")
         return job
@@ -570,7 +658,7 @@ def takt_jobs():
             a += active
             r += recent
 
-    runs = []
+    runs = {}  # worktree -> meta.json of its latest run
     for pattern in TAKT_RUN_GLOBS.split(":"):
         for path in sorted(glob.glob(os.path.expanduser(pattern))):
             real = os.path.realpath(path)
@@ -582,12 +670,13 @@ def takt_jobs():
             if wt in queued_dirs:
                 continue
             meta = read_json(path)
-            if isinstance(meta, dict):
-                runs.append((wt, meta))
-    live = takt_live_dirs() if any(m.get("status") == "running" for _, m in runs) else set()
-    for wt, meta in runs:
+            # A worktree is reused for several runs: only its latest run tells where it stands
+            if isinstance(meta, dict) and (iso_ts(meta.get("startTime")) or 0) >= (iso_ts(runs.get(wt, {}).get("startTime")) or 0):
+                runs[wt] = meta
+    live = takt_live_dirs() if any(m.get("status") == "running" for m in runs.values()) else set()
+    for wt, meta in runs.items():
         # When the process list cannot be read, trust meta.json rather than call every run stopped
-        job = takt_run_job(meta, live is None or wt in live, now)
+        job = takt_run_job(meta, live is None or wt in live, now, wt)
         if job is None:
             continue
         job["name"] = os.path.basename(wt)
@@ -597,7 +686,9 @@ def takt_jobs():
     out = []
     for project, (active, recent) in acc.items():
         recent.sort(key=lambda j: -(j["ts"] or 0))
-        jobs = active + recent[:TAKT_RECENT_MAX]
+        # Jobs waiting for a person are all shown; the cap only trims those kept for the last day
+        rest = {id(j) for j in [j for j in recent if not j.get("review")][:TAKT_RECENT_MAX]}
+        jobs = active + [j for j in recent if j.get("review") or id(j) in rest]
         if jobs:
             out.append((project, jobs))
     return out
@@ -881,19 +972,22 @@ def layout(workspace, envs, items, cursor, flat):
         scr.put_cards([(quota_card(q, qw), qw) for q in qs], qcols)
         scr.blank()
 
-    # ---- TAKT jobs (queued / running / waiting, and what finished in the last day)
+    # ---- TAKT jobs (queued / running / waiting, finished ones until settled, and failures of the last day)
     # Always drawn, so an empty queue reads as "nothing running" rather than "the TAKT section is missing"
     jobs = [(p, j) for p, js in takt_jobs() for j in js]
     counts = {k: sum(1 for _, j in jobs if j["kind"] == k) for k in ("running", "pending", "idle", "stale", "failed", "exceeded")}
     summary = f"  実行中 {counts['running']}   待ち {counts['pending'] + counts['idle']}"
+    reviews = sum(1 for _, j in jobs if j.get("review"))
+    if reviews:
+        summary += f"   確認待ち {reviews}"
     if counts["stale"] + counts["failed"] + counts["exceeded"]:
         summary += f"   要確認 {counts['stale'] + counts['failed'] + counts['exceeded']}"
-    scr.put(section("TAKT", 6).add(summary, fg=PAL["muted"]).add("   直近 24 時間の完了・失敗を含む", fg=PAL["muted"]))
+    scr.put(section("TAKT", 6).add(summary, fg=PAL["muted"]).add("   片付いた完了 (PR を閉じた・コミットした) は消える", fg=PAL["muted"]))
     tw = avail
     if jobs:
         body = [takt_line(p, j, tw - 4) for p, j in jobs]
     else:
-        body = [Line().add(" ジョブはありません (待ち・実行中・直近 24 時間の完了なし)", fg=PAL["muted"])]
+        body = [Line().add(" ジョブはありません (待ち・実行中・確認待ち・直近 24 時間の完了や失敗なし)", fg=PAL["muted"])]
     scr.put_cards([(card(tw, Line().add("ジョブ", fg=ink(6), bold=True), body, title_bg=deco(6)), tw)], 1)
     scr.blank()
 
