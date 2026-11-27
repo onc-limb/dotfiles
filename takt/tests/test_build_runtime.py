@@ -109,6 +109,23 @@ class PrivateEnvironment(unittest.TestCase):
             # Same role table: only the assignment suffix differs.
             self.assertEqual(strip_assignment(entry, "credit-out"), work_targets[key], key)
 
+    def test_go_out_gives_the_codex_roles_of_work_to_the_same_codex_models(self):
+        work = generated("work", DENY)["provider"]
+        private = generated("private")["provider"]
+        go_out = private["assignments"]["go-out"]
+        overridden = {n.split("@")[0] for n in private["profiles"] if n.endswith("@go-out")}
+        work_codex = {n for n, p in work["profiles"].items() if p["provider"] == "codex"}
+        self.assertEqual(overridden, work_codex)
+        for role in work_codex:
+            self.assertEqual(private["profiles"][f"{role}@go-out"], work["profiles"][role], role)
+        default = go_out["defaults"]["profile"]
+        self.assertEqual(private["profiles"][default]["provider"], "claude-sdk")
+        used = set()
+        for kind in go_out["targets"].values():
+            for entry in kind.values():
+                used.update(entry.get("ladder", [entry.get("profile")]))
+        self.assertNotIn("opencode", {private["profiles"][n]["provider"] for n in used})
+
     def test_credit_out_keeps_defaults_on_claude(self):
         private = generated("private")["provider"]
         default = private["assignments"]["credit-out"]["defaults"]["profile"]
@@ -183,6 +200,7 @@ class AcceptedByTakt(unittest.TestCase):
         out = self.check("private", [])
         self.assertIn("ok default", out)
         self.assertIn("ok credit-out", out)
+        self.assertIn("ok go-out", out)
 
 
 if __name__ == "__main__":

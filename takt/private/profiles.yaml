@@ -3,11 +3,18 @@
 # `roles` is the default assignment: everything on Claude, billed to the
 # Claude API (the wrapper exports ANTHROPIC_PROFILE for billing=api).
 #
+# Fallback order for implementation: Claude API -> OpenCode Go -> Codex.
+#
 # `assignments.credit-out` is used once the API credits run out
 # (billing=subscription, or TAKT_BILLING=subscription for one command): the
 # wrapper drops ANTHROPIC_PROFILE so Claude runs on the subscription, and
 # passes --runtime-assignment credit-out. Only the roles listed there change;
 # they are the roles Codex plays in takt/work/profiles.yaml.
+#
+# `assignments.go-out` is the next step, once OpenCode Go hits its usage limit
+# as well (billing=codex / TAKT_BILLING=codex): Claude stays on the
+# subscription and the same roles move to the Codex (ChatGPT) subscription,
+# with the models the work environment uses.
 roles:
   planner:
     provider: claude-sdk
@@ -34,10 +41,28 @@ roles:
 
 assignments:
   credit-out:
+    # OpenCode Go has no Sonnet / Opus. The two roles keep the same split as
+    # the API assignment (Sonnet implements, Opus retries): a mid-priced
+    # flagship coding model first, the top-priced one only for retries.
+    # All Go models draw on one allowance, as a share of each model's monthly
+    # limit: GLM-5.3 ($200 limit, ~2,640 requests / 5 h) lasts about 18 times
+    # longer than Kimi K3.1 Pro ($15 limit, ~147 requests / 5 h), which ran
+    # out during the second job on 2026-11-23. Chosen 2026-11-24 as a trial;
+    # the gates (typecheck / test / lint) and the reviews decide whether it holds.
     implementer:
       provider: opencode
-      model: opencode-go/kimi-k3.1-pro
+      model: opencode-go/glm-5.3
     implementer-retry:
-      # Same model until a stronger OpenCode Go model is chosen for retries.
       provider: opencode
       model: opencode-go/kimi-k3.1-pro
+  go-out:
+    implementer:
+      provider: codex
+      model: gpt-6.2-sol
+      options:
+        reasoning_effort: high
+    implementer-retry:
+      provider: codex
+      model: gpt-6.2-astra
+      options:
+        reasoning_effort: high

@@ -10,7 +10,7 @@ TAKT は仕事用とプライベート用で、グローバル設定の置き場
 | 置き場 | 使われるとき | 支払い |
 |---|---|---|
 | `~/.takt-work` | wrapper（`bin/takt`）が仕事用と判定したとき | Claude のサブスクリプション + Codex のサブスクリプション |
-| `~/.takt-private` | wrapper がプライベート用と判定したとき | Claude API（`billing=api`）。クレジットが切れたら Claude のサブスクリプション + OpenCode Go（`billing=subscription`） |
+| `~/.takt-private` | wrapper がプライベート用と判定したとき | Claude API（`billing=api`）。クレジットが切れたら Claude のサブスクリプション + OpenCode Go（`billing=subscription`）、OpenCode Go も上限なら Claude + Codex のサブスクリプション（`billing=codex`） |
 | `~/.takt` | wrapper を通らない起動（実行ファイルを直接呼んだとき） | 仕事用の設定の**コピー**（ここへの書き込みは dotfiles に戻らない） |
 
 `install.sh` が 3 つの置き場に、`config.yaml`・`runtime.yaml`（生成）・`facets/`（リンク）・`workflows/`（コピー）を作る。
@@ -46,7 +46,7 @@ OpenCode の CLI を `/usr/bin/false` に向けてから起動する。
 git の対象外に置く（仕事用のリポジトリには置かない）。
 
 ```
-billing=api             # api（Claude API。既定）| subscription（クレジット切れ用の組）
+billing=api             # api（Claude API。既定）| subscription（クレジット切れ用の組）| codex（OpenCode Go も上限のときの組）
 anthropic_profile=takt  # billing=api で使う `ant auth login --profile <name>` のプロファイル
 ```
 
@@ -56,11 +56,18 @@ anthropic_profile=takt  # billing=api で使う `ant auth login --profile <name>
 TAKT_BILLING=subscription takt list   # retry →「Resume failed position」
 ```
 
+OpenCode Go の使用上限（5 時間・週）で実装が止まったら、実装だけ Codex のサブスクリプションに替えて再開する:
+
+```bash
+TAKT_BILLING=codex takt list
+```
+
 ## モデルの割当
 
 - `common/targets.yaml`: どのステップ・persona にどの役割を当てるか（共通の表）。
 - `work/profiles.yaml`・`private/profiles.yaml`: 役割に当てるモデル。プライベートの `assignments.credit-out` は、
   仕事用で Codex が受け持つ役割（`implementer`・`implementer-retry`）だけを OpenCode Go に替える。
+  `assignments.go-out` は、同じ役割を仕事用と同じ Codex のモデルに替える。実装の順は Claude API → OpenCode Go → Codex。
 - `build-runtime.py` が 2 つを合わせて `runtime.yaml` を作る。仕事用は `--deny opencode --deny openrouter` 付きで作る。
 
 ## ワークフロー（共通）
