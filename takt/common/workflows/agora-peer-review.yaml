@@ -14,6 +14,9 @@ all_steps:
 # agora-development-core through its `peer_review_workflow` param. Changes:
 # - loop_monitors: a hard cap on review -> fix rounds (see below).
 # - instructions: `loop-cap` for the cap's judge.
+# - instructions: `final-report` on both final gates: summary.md ends with
+#   the order's final report, which bin/takt-pr-report copies into the PR
+#   body (TAKT 0.75 writes only a fixed sentence there).
 # - adjudication is skipped when the initial reviewers all approve:
 #   initial-reviewers COMPLETE -> final-gate-direct (new step). Follow-up
 #   rounds still go through adjudication, which records that the earlier
@@ -26,6 +29,7 @@ all_steps:
 instructions:
   loop-cap: ../facets/instructions/agora-loop-cap.md
   final-gate-direct: ../facets/instructions/agora-final-gate-direct.md
+  final-report: ../facets/instructions/agora-final-report.md
 
 subworkflow:
   callable: true
@@ -272,6 +276,7 @@ steps:
       - $param: final_gate_instruction
       - final-gate-direct
       - review-remediation-problem-tracking
+      - final-report
     rules:
       - condition: APPROVE
         next: COMPLETE
@@ -288,6 +293,12 @@ steps:
         $param: final_gate_policy
       final_gate_instruction:
         $param: final_gate_instruction
+    # The template's instructions plus final-report (the order's final report
+    # at the end of summary.md; bin/takt-pr-report copies it into the PR).
+    instruction:
+      - $param: final_gate_instruction
+      - review-remediation-problem-tracking
+      - final-report
     rules:
       - condition: APPROVE
         next: COMPLETE

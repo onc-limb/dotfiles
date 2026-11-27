@@ -97,6 +97,13 @@ esac
 for arg in "$@"; do
   [[ "$arg" == "--pipeline" ]] && runs_workflow=true
 done
+# `takt run` / `takt watch` finish tasks whose PRs TAKT opened with a fixed
+# one-line report: afterwards, bin/takt-pr-report copies each run's final
+# summary (summary.md) into the open PR's body.
+post_report=false
+case "${1:-}" in
+  run | watch) post_report=true ;;
+esac
 
 # --- 1. environment --------------------------------------------------------
 
@@ -231,9 +238,20 @@ fi
 
 # --- 2. agora's design knowledge -------------------------------------------
 
+# Runs the real takt; after run / watch, also the PR report (its failure does
+# not change takt's exit status).
+run_real() {
+  $post_report || exec "$real" "$@"
+  local status=0
+  "$real" "$@" || status=$?
+  "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/takt-pr-report" "$PWD" \
+    || echo "takt wrapper: takt-pr-report failed (see above); takt itself exited $status" >&2
+  exit "$status"
+}
+
 conf=".takt/agora.conf"
-$runs_workflow || exec "$real" "$@"
-[[ -f "$conf" ]] || exec "$real" "$@"
+$runs_workflow || run_real "$@"
+[[ -f "$conf" ]] || run_real "$@"
 
 lang=""
 scene="verify"
@@ -282,4 +300,4 @@ if git rev-parse --git-dir > /dev/null 2>&1 && ! git check-ignore -q "$out"; the
 fi
 
 echo "agora-design: $(wc -c < "$out" | tr -d ' ') bytes (scene=$scene${lang:+, lang=$lang})" >&2
-exec "$real" "$@"
+run_real "$@"

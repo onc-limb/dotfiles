@@ -109,8 +109,29 @@ class AdjudicationSkip(unittest.TestCase):
         direct = next(s for s in workflow["steps"] if s["name"] == "final-gate-direct")
         self.assertEqual(
             direct["instruction"],
-            [{"$param": "final_gate_instruction"}, "final-gate-direct", "review-remediation-problem-tracking"],
+            [
+                {"$param": "final_gate_instruction"},
+                "final-gate-direct",
+                "review-remediation-problem-tracking",
+                "final-report",
+            ],
         )
+
+    def test_both_final_gates_write_the_final_report(self):
+        # bin/takt-pr-report copies summary.md into the PR body; both gates are
+        # told to end it with the order's final report. final-gate keeps the
+        # instructions of TAKT's peer-review-final-gate template before it.
+        text = (TAKT_DIR / "common" / "facets" / "instructions" / "agora-final-report.md").read_text()
+        self.assertIn("## 最終レポート", text)
+        workflow = yaml.safe_load((WORKFLOWS / "agora-peer-review.yaml").read_text())
+        self.assertEqual(workflow["instructions"]["final-report"], "../facets/instructions/agora-final-report.md")
+        gate = next(s for s in workflow["steps"] if s["name"] == "final-gate")
+        self.assertEqual(
+            gate["instruction"],
+            [{"$param": "final_gate_instruction"}, "review-remediation-problem-tracking", "final-report"],
+        )
+        direct = next(s for s in workflow["steps"] if s["name"] == "final-gate-direct")
+        self.assertEqual(direct["instruction"][-1], "final-report")
 
 
 @unittest.skipUnless(installed_takt() and shutil.which("node"), "TAKT or node not installed")

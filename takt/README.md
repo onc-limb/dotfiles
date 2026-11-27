@@ -101,6 +101,11 @@ TAKT_BILLING=codex takt list
 - **範囲の関門**:
   - 裁定とレビュー（`agora-review-scope`）: 前からある問題や範囲外の改善は、今回は直さず後続の課題として記録する。
   - 修正の確認（`agora-fix-verification-scope`）: 裁定が決めた受け入れ条件だけで判定する。
+- **最終レポートを PR の本文へ**: TAKT 0.75 は、自分で作る PR の本文に「完了した」という決まった一文しか書かない。
+  - 最後の確認（`final-gate`・`final-gate-direct`）に指示（`agora-final-report`）を足し、`summary.md` の末尾に、指示書の「最終レポートに書くこと」を項目ごとに書かせる。
+  - wrapper は `takt run`・`takt watch` の後に `bin/takt-pr-report` を動かし、完了した task の最新の `summary.md` を、開いている PR の本文に足す。
+    目印（`<!-- takt:final-report -->`）があれば何もしない。ローカルのパスは書かない。
+  - wrapper を通らずに終わった run は、手で `takt-pr-report <プロジェクト>`（`--dry-run` で中身だけ見る）。
 
 ## テスト
 
@@ -110,4 +115,5 @@ python3 -m unittest discover -s takt/tests -p 'test_*.py'
 ```
 
 `test_build_runtime.py` は、TAKT が入っていれば TAKT 自身の検証（`tests/validate-runtime.mjs`）でも生成物を確かめる。
+`test_pr_report.py` は、偽の `gh` で `takt-pr-report` の書き込み先・一度だけ・パスを消すことを確かめる。
 `test_workflows.py` は、共通のワークフローを TAKT のローダーで読み、見直しの行き先・昇格・周回の上限の形を確かめる。
