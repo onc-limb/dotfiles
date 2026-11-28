@@ -10,7 +10,7 @@ TAKT は仕事用とプライベート用で、グローバル設定の置き場
 | 置き場 | 使われるとき | 支払い |
 |---|---|---|
 | `~/.takt-work` | wrapper（`bin/takt`）が仕事用と判定したとき | Claude のサブスクリプション + Codex のサブスクリプション |
-| `~/.takt-private` | wrapper がプライベート用と判定したとき | Claude API（`billing=api`）。クレジットが切れたら Claude のサブスクリプション + OpenCode Go（`billing=subscription`） |
+| `~/.takt-private` | wrapper がプライベート用と判定したとき | Claude API（`billing=api`）。クレジットが切れたら Claude のサブスクリプション + OpenCode Go（`billing=subscription`）、OpenCode Go も上限なら Claude + Codex のサブスクリプション（`billing=codex`） |
 | `~/.takt` | wrapper を通らない起動（実行ファイルを直接呼んだとき） | 仕事用の設定の**コピー**（ここへの書き込みは dotfiles に戻らない） |
 
 `install.sh` が 3 つの置き場に、`config.yaml`・`runtime.yaml`（生成）・`facets/`（リンク）・`workflows/`（コピー）を作る。
@@ -46,7 +46,7 @@ OpenCode の CLI を `/usr/bin/false` に向けてから起動する。
 git の対象外に置く（仕事用のリポジトリには置かない）。
 
 ```
-billing=api             # api（Claude API。既定）| subscription（クレジット切れ用の組）
+billing=api             # api（Claude API。既定）| subscription（クレジット切れ用の組）| codex（OpenCode Go も上限のときの組）
 anthropic_profile=takt  # billing=api で使う `ant auth login --profile <name>` のプロファイル
 ```
 
@@ -56,11 +56,22 @@ anthropic_profile=takt  # billing=api で使う `ant auth login --profile <name>
 TAKT_BILLING=subscription takt list   # retry →「Resume failed position」
 ```
 
+OpenCode Go の使用上限（5 時間・週）で実装が止まったら、実装だけ Codex のサブスクリプションに替えて再開する:
+
+```bash
+TAKT_BILLING=codex takt list
+```
+
 ## モデルの割当
 
 - `common/targets.yaml`: どのステップ・persona にどの役割を当てるか（共通の表）。
+  - 振り分けだけをする内部の役（`internal_agents.selector`。どのレビューを動かすかなどを選ぶ）は `router`（Haiku）。
+  - 最後の確認（`final-gate`・`final-gate-direct`）・設計のレビュー・裁定・計画・テスト設計は Opus。
+    最後の確認を Sonnet に下げない（裁定を省いた回は、ここが要件を Opus で確かめる唯一のステップになる）。
+  - 判定のフェーズ（結果をルールに当てはめる Phase 3）は、TAKT 0.75 ではステップと同じモデルで動き、別のモデルにできない。
 - `work/profiles.yaml`・`private/profiles.yaml`: 役割に当てるモデル。プライベートの `assignments.credit-out` は、
   仕事用で Codex が受け持つ役割（`implementer`・`implementer-retry`）だけを OpenCode Go に替える。
+  `assignments.go-out` は、同じ役割を仕事用と同じ Codex のモデルに替える。実装の順は Claude API → OpenCode Go → Codex。
 - `build-runtime.py` が 2 つを合わせて `runtime.yaml` を作る。仕事用は `--deny opencode --deny openrouter` 付きで作る。
 
 ## ワークフロー（共通）
@@ -77,14 +88,24 @@ TAKT_BILLING=subscription takt list   # retry →「Resume failed position」
     5. 1 回の run に収まる大きさ
   - 見直しの結果ごとの行き先:
     - 進める → テストの作成へ。
-    - 計画を直す → `plan-revise`（最上位の計画モデル）→ `plan-review-2` へ。
+    - 計画を直す → `plan-revise`（`planner-top`。いまは Opus）→ `plan-review-2` へ。
     - 人に戻す → 中止。
   - 差し戻しは 1 回まで。`plan-review-2` からは計画へ戻る道がない。
-- **計画の昇格**: テストの作成から計画へ戻ったときは、2 回目の `plan` が Opus から Fable に上がる（`promotion: [{at: 2}]`）。
+- **計画の昇格**: テストの作成から計画へ戻ったときは、2 回目の `plan` が `planner` から `planner-top` に上がる（`promotion: [{at: 2}]`）。
+  いまはどちらも Opus。TAKT のワークフローでは Fable を使わない（最上位のモデルが要る判断は、job を書く時点で済ませる）。
 - **修正の周回の上限**: レビュー → 裁定 → 修正の周回は、修正 3 回で止めて人に戻す。止めたときは、判定役が残っている問題と止めた理由を書く。
+- **裁定の省略**: 最初のレビューで全員が承認したら、裁定を飛ばして最後の確認（`final-gate-direct`）へ進む。
+  - 最後の確認には「裁定が無い」ことを伝える指示（`agora-final-gate-direct`）を足す。裁定が見るはずだった、レビューの「指摘にしなかった懸念」と計画の「留意点」も、ここで確かめる。
+  - ここで REJECT になったら、修正へ直接は進まず、裁定へ回す（修正の工程は裁定のレポートを読むため）。
+  - 修正の後のレビュー（2 周目以降）は、全員が承認しても裁定を通す（前の指摘が解消したことを記録するのが裁定のため）。
 - **範囲の関門**:
   - 裁定とレビュー（`agora-review-scope`）: 前からある問題や範囲外の改善は、今回は直さず後続の課題として記録する。
   - 修正の確認（`agora-fix-verification-scope`）: 裁定が決めた受け入れ条件だけで判定する。
+- **最終レポートを PR の本文へ**: TAKT 0.75 は、自分で作る PR の本文に「完了した」という決まった一文しか書かない。
+  - 最後の確認（`final-gate`・`final-gate-direct`）に指示（`agora-final-report`）を足し、`summary.md` の末尾に、指示書の「最終レポートに書くこと」を項目ごとに書かせる。
+  - wrapper は `takt run`・`takt watch` の後に `bin/takt-pr-report` を動かし、完了した task の最新の `summary.md` を、開いている PR の本文に足す。
+    目印（`<!-- takt:final-report -->`）があれば何もしない。ローカルのパスは書かない。
+  - wrapper を通らずに終わった run は、手で `takt-pr-report <プロジェクト>`（`--dry-run` で中身だけ見る）。
 
 ## テスト
 
@@ -94,4 +115,5 @@ python3 -m unittest discover -s takt/tests -p 'test_*.py'
 ```
 
 `test_build_runtime.py` は、TAKT が入っていれば TAKT 自身の検証（`tests/validate-runtime.mjs`）でも生成物を確かめる。
+`test_pr_report.py` は、偽の `gh` で `takt-pr-report` の書き込み先・一度だけ・パスを消すことを確かめる。
 `test_workflows.py` は、共通のワークフローを TAKT のローダーで読み、見直しの行き先・昇格・周回の上限の形を確かめる。

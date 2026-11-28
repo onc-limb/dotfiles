@@ -11,7 +11,8 @@
 #   work     TAKT_CONFIG_DIR=~/.takt-work. Claude subscription + Codex
 #            subscription only.
 #   private  TAKT_CONFIG_DIR=~/.takt-private. Claude API (or, after the credits
-#            run out, the Claude subscription + OpenCode Go).
+#            run out, the Claude subscription + OpenCode Go; after OpenCode Go
+#            hits its limit, the Claude subscription + Codex subscription).
 #
 # Private is used only when BOTH hold:
 #   - the project (git top level, symlinks resolved) is under
@@ -33,7 +34,9 @@
 # lookup points at an empty directory and the OpenCode CLI at /usr/bin/false.
 #
 # .takt/private.conf (KEY=VALUE, git-ignored; never put one in a work repo):
-#   billing=api             # api (Claude API, default) | subscription (credit-out)
+#   billing=api             # api (Claude API, default) | subscription (credit-out:
+#                           # OpenCode Go implements) | codex (go-out: OpenCode Go
+#                           # is at its limit too, Codex implements)
 #   anthropic_profile=takt  # `ant auth login --profile <name>` used for billing=api
 # TAKT_BILLING=subscription overrides billing for one command, e.g. to resume a
 # run that stopped on credits:  TAKT_BILLING=subscription takt list  (retry ->
@@ -94,6 +97,13 @@ esac
 for arg in "$@"; do
   [[ "$arg" == "--pipeline" ]] && runs_workflow=true
 done
+# `takt run` / `takt watch` finish tasks whose PRs TAKT opened with a fixed
+# one-line report: afterwards, bin/takt-pr-report copies each run's final
+# summary (summary.md) into the open PR's body.
+post_report=false
+case "${1:-}" in
+  run | watch) post_report=true ;;
+esac
 
 # --- 1. environment --------------------------------------------------------
 
@@ -195,6 +205,16 @@ else
   billing="${TAKT_BILLING:-$billing}"
 
   export TAKT_CONFIG_DIR="$private_dir"
+  # TAKT's opencode runtime talks the v2 protocol by default and refuses a 1.x
+  # CLI, while the `opencode` on PATH may be 1.x (npm opencode-ai). Point it at
+  # the 2.x CLI kept apart for TAKT:
+  #   npm install --prefix ~/.local/share/opencode-v2 @opencode/cli@<2.x>
+  # (its credentials are shared with 1.x). Values already set win.
+  opencode_v2="$HOME/.local/share/opencode-v2/node_modules/.bin/opencode"
+  if [[ -z "${TAKT_OPENCODE_PATH:-}" && -x "$opencode_v2" ]]; then
+    export TAKT_OPENCODE_VERSION="${TAKT_OPENCODE_VERSION:-v2}"
+    export TAKT_OPENCODE_PATH="$opencode_v2"
+  fi
   case "$billing" in
     api)
       [[ -n "$anthropic_profile" ]] || die "anthropic_profile is empty in $private_conf"
@@ -206,15 +226,32 @@ else
       set -- --runtime-assignment credit-out "$@"
       echo "takt wrapper: private environment ($private_dir; credit-out: Claude subscription + OpenCode Go)" >&2
       ;;
-    *) die "billing must be api or subscription, got '$billing' ($private_conf / TAKT_BILLING)" ;;
+    codex)
+      unset ANTHROPIC_PROFILE ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN TAKT_ANTHROPIC_API_KEY \
+        OPENAI_API_KEY CODEX_API_KEY
+      set -- --runtime-assignment go-out "$@"
+      echo "takt wrapper: private environment ($private_dir; go-out: Claude subscription + Codex subscription)" >&2
+      ;;
+    *) die "billing must be api, subscription or codex, got '$billing' ($private_conf / TAKT_BILLING)" ;;
   esac
 fi
 
 # --- 2. agora's design knowledge -------------------------------------------
 
+# Runs the real takt; after run / watch, also the PR report (its failure does
+# not change takt's exit status).
+run_real() {
+  $post_report || exec "$real" "$@"
+  local status=0
+  "$real" "$@" || status=$?
+  "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/takt-pr-report" "$PWD" \
+    || echo "takt wrapper: takt-pr-report failed (see above); takt itself exited $status" >&2
+  exit "$status"
+}
+
 conf=".takt/agora.conf"
-$runs_workflow || exec "$real" "$@"
-[[ -f "$conf" ]] || exec "$real" "$@"
+$runs_workflow || run_real "$@"
+[[ -f "$conf" ]] || run_real "$@"
 
 lang=""
 scene="verify"
@@ -263,4 +300,4 @@ if git rev-parse --git-dir > /dev/null 2>&1 && ! git check-ignore -q "$out"; the
 fi
 
 echo "agora-design: $(wc -c < "$out" | tr -d ' ') bytes (scene=$scene${lang:+, lang=$lang})" >&2
-exec "$real" "$@"
+run_real "$@"

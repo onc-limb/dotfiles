@@ -125,6 +125,15 @@ expect_line "private subscription: no API key" "ANTHROPIC_API_KEY=<unset>"
 run "$private_root/site" TAKT_BILLING=subscription -- list
 expect_line "TAKT_BILLING overrides billing" "ARGS=--runtime-assignment credit-out list"
 
+mkproj "$private_root/codex" "billing=codex"
+run "$private_root/codex" ANTHROPIC_PROFILE=takt OPENAI_API_KEY=sk-x -- run
+expect_line "private codex: assignment" "ARGS=--runtime-assignment go-out run"
+expect_line "private codex: no profile" "ANTHROPIC_PROFILE=<unset>"
+expect_line "private codex: no OpenAI API key" "OPENAI_API_KEY=<unset>"
+
+run "$private_root/site" TAKT_BILLING=codex -- run
+expect_line "TAKT_BILLING=codex overrides billing" "ARGS=--runtime-assignment go-out run"
+
 mkproj "$private_root/badkey" "billing=api
 colour=blue"
 run "$private_root/badkey" -- run
@@ -132,7 +141,7 @@ expect_stop "private: unknown key stops" "unknown key 'colour'"
 
 mkproj "$private_root/badbilling" "billing=free"
 run "$private_root/badbilling" -- run
-expect_stop "private: bad billing stops" "billing must be api or subscription"
+expect_stop "private: bad billing stops" "billing must be api, subscription or codex"
 
 mkproj "$private_root/both" "billing=api"
 echo "anthropic_profile=takt" > "$private_root/both/.takt/auth.conf"

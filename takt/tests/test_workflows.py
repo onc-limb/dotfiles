@@ -80,6 +80,61 @@ class FixRoundCap(unittest.TestCase):
 
 
 @unittest.skipUnless(installed_takt() and shutil.which("node"), "TAKT or node not installed")
+class AdjudicationSkip(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.review = load("agora-peer-review")
+
+    def test_initial_approval_skips_adjudication(self):
+        # COMPLETE (every reviewer approved) / needs_fix
+        self.assertEqual(step(self.review, "initial-reviewers")["next"], ["final-gate-direct", "review-adjudication"])
+
+    def test_follow_up_rounds_keep_adjudication(self):
+        # After a fix, adjudication is what records that the findings are closed.
+        self.assertEqual(step(self.review, "reviewers")["next"], ["review-adjudication", "review-adjudication"])
+
+    def test_direct_gate_reject_goes_to_adjudication(self):
+        # APPROVE / REJECT / BLOCKED (returns need_replan). Remediation reads
+        # the ruling of review-adjudication, which has not run on this path.
+        self.assertEqual(step(self.review, "final-gate-direct")["next"], ["COMPLETE", "review-adjudication", None])
+        self.assertEqual(step(self.review, "final-gate")["next"], ["COMPLETE", "remediation", None])
+
+    def test_direct_gate_is_told_there_is_no_ruling(self):
+        text = (TAKT_DIR / "common" / "facets" / "instructions" / "agora-final-gate-direct.md").read_text()
+        self.assertIn("レビューの裁定を経ていません", text)
+        workflow = yaml.safe_load((WORKFLOWS / "agora-peer-review.yaml").read_text())
+        self.assertEqual(
+            workflow["instructions"]["final-gate-direct"], "../facets/instructions/agora-final-gate-direct.md"
+        )
+        direct = next(s for s in workflow["steps"] if s["name"] == "final-gate-direct")
+        self.assertEqual(
+            direct["instruction"],
+            [
+                {"$param": "final_gate_instruction"},
+                "final-gate-direct",
+                "review-remediation-problem-tracking",
+                "final-report",
+            ],
+        )
+
+    def test_both_final_gates_write_the_final_report(self):
+        # bin/takt-pr-report copies summary.md into the PR body; both gates are
+        # told to end it with the order's final report. final-gate keeps the
+        # instructions of TAKT's peer-review-final-gate template before it.
+        text = (TAKT_DIR / "common" / "facets" / "instructions" / "agora-final-report.md").read_text()
+        self.assertIn("## 最終レポート", text)
+        workflow = yaml.safe_load((WORKFLOWS / "agora-peer-review.yaml").read_text())
+        self.assertEqual(workflow["instructions"]["final-report"], "../facets/instructions/agora-final-report.md")
+        gate = next(s for s in workflow["steps"] if s["name"] == "final-gate")
+        self.assertEqual(
+            gate["instruction"],
+            [{"$param": "final_gate_instruction"}, "review-remediation-problem-tracking", "final-report"],
+        )
+        direct = next(s for s in workflow["steps"] if s["name"] == "final-gate-direct")
+        self.assertEqual(direct["instruction"][-1], "final-report")
+
+
+@unittest.skipUnless(installed_takt() and shutil.which("node"), "TAKT or node not installed")
 class Callers(unittest.TestCase):
     def check(self, workflow: dict):
         calls = [s for s in workflow["steps"] if s["kind"] == "workflow_call"]

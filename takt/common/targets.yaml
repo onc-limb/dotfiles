@@ -11,12 +11,20 @@
 # Nth visit).
 # Assignment priority in TAKT 0.75: steps > tags > personas > defaults.
 
-# Reviewers, internal agents (selector, assistant, judges) and anything unlisted.
+# Reviewers, the assistant seat and anything unlisted.
 defaults: worker
 
+# TAKT's internal seats (only `selector` and `assistant` exist; a seat takes a
+# fixed role, not a ladder). The selector only picks IDs from a list (which
+# reviewers to run, which implement / fix variant), one request each: cheapest
+# model. The status judgment phase (Phase 3) is not a seat: TAKT 0.75 runs it
+# on the step's own model (status-judgment-phase.js), so it cannot be moved.
+internal_agents:
+  selector: router
+
 personas:
-  # plan / replan / fix-plan. Strong model first; the top model only when a
-  # step that declares promotion runs again.
+  # plan / replan / fix-plan. `planner` first; `planner-top` only when a step
+  # that declares promotion runs again (both Opus for now, see profiles.yaml).
   planner:
     ladder: [planner, planner-top]
   review-adjudicator: judge
@@ -34,6 +42,10 @@ steps:
   # coder-persona step that designs the tests: keep it on the judgment model.
   write_tests: test-designer
   architecture-review: judge
+  # final-gate / final-gate-direct are not listed: they run on the supervisor
+  # persona's judge. When the initial reviewers all approve, agora-peer-review
+  # skips adjudication, and the final gate is then the only judge-model check
+  # of the requirements, so it must not be moved to the worker model.
   # Retries after the implementer could not pass.
   reimplement: implementer-retry
   fix-retry: implementer-retry

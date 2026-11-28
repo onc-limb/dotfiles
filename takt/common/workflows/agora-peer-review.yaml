@@ -14,12 +14,22 @@ all_steps:
 # agora-development-core through its `peer_review_workflow` param. Changes:
 # - loop_monitors: a hard cap on review -> fix rounds (see below).
 # - instructions: `loop-cap` for the cap's judge.
+# - instructions: `final-report` on both final gates: summary.md ends with
+#   the order's final report, which bin/takt-pr-report copies into the PR
+#   body (TAKT 0.75 writes only a fixed sentence there).
+# - adjudication is skipped when the initial reviewers all approve:
+#   initial-reviewers COMPLETE -> final-gate-direct (new step). Follow-up
+#   rounds still go through adjudication, which records that the earlier
+#   findings are closed. Do not move the final gate off the judge model: on
+#   the skipped path it is the only judge-model check of the requirements.
 # The scope gate on adjudication and on fix verification is passed in as
 # policies (review_policy_additions / verification_policy) by the caller.
 # When TAKT is upgraded, diff the builtin peer-review.yaml against this file.
 
 instructions:
   loop-cap: ../facets/instructions/agora-loop-cap.md
+  final-gate-direct: ../facets/instructions/agora-final-gate-direct.md
+  final-report: ../facets/instructions/agora-final-report.md
 
 subworkflow:
   callable: true
@@ -181,8 +191,9 @@ steps:
       frontend_review_instruction: frontend-review
       cqrs_es_review_instruction: cqrs-es-review
     rules:
+      # Every reviewer approved: nothing to adjudicate, go to the final gate.
       - condition: COMPLETE
-        next: review-adjudication
+        next: final-gate-direct
       - condition: needs_fix
         next: review-adjudication
   - name: reviewers
@@ -224,6 +235,9 @@ steps:
         reports: [fix-plan.md, fix-report.md, fix-verification.md]
         optional_if_unrun: true
         history: {previous: 2}
+      - from_step: final-gate-direct
+        reports: [review-resolution.md]
+        optional_if_unrun: true
     uses: peer-review-adjudication
     with:
       review_policy_additions:
@@ -237,6 +251,39 @@ steps:
         next: final-gate
       - condition: タスク全体の再計画が必要
         return: need_replan
+  # The final gate for the path that skipped adjudication (initial reviewers all
+  # approved). Same step as final-gate plus one instruction that says there is
+  # no ruling to read. A REJECT goes to adjudication, not to remediation:
+  # remediation reads the ruling (review-resolution.md) of review-adjudication,
+  # which has not run on this path.
+  - name: final-gate-direct
+    # Declared so that the {report:review-resolution.md} in the caller's final
+    # gate instruction is known to be absent here (or, after a task-level
+    # replan, to be the ruling of an earlier round).
+    input_reports:
+      - from_step: review-adjudication
+        reports: [review-resolution.md]
+        optional_if_unrun: true
+    uses: peer-review-final-gate
+    with:
+      review_knowledge:
+        $param: review_knowledge_additions
+      final_gate_policy:
+        $param: final_gate_policy
+      final_gate_instruction:
+        $param: final_gate_instruction
+    instruction:
+      - $param: final_gate_instruction
+      - final-gate-direct
+      - review-remediation-problem-tracking
+      - final-report
+    rules:
+      - condition: APPROVE
+        next: COMPLETE
+      - condition: REJECT
+        next: review-adjudication
+      - condition: BLOCKED
+        return: need_replan
   - name: final-gate
     uses: peer-review-final-gate
     with:
@@ -246,6 +293,12 @@ steps:
         $param: final_gate_policy
       final_gate_instruction:
         $param: final_gate_instruction
+    # The template's instructions plus final-report (the order's final report
+    # at the end of summary.md; bin/takt-pr-report copies it into the PR).
+    instruction:
+      - $param: final_gate_instruction
+      - review-remediation-problem-tracking
+      - final-report
     rules:
       - condition: APPROVE
         next: COMPLETE

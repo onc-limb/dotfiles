@@ -61,20 +61,44 @@ class WorkEnvironment(unittest.TestCase):
             self.assertEqual(profiles[targets["steps"][step]["profile"]]["provider"], "codex")
         self.assertEqual(profiles[targets["steps"]["write_tests"]["profile"]]["provider"], "claude-sdk")
 
-    def test_planner_starts_on_opus_and_climbs_to_fable(self):
+    def test_planner_ladder_stays_on_opus(self):
         doc = generated("work", DENY)
         ladder = doc["provider"]["targets"]["personas"]["planner"]["ladder"]
         models = [doc["provider"]["profiles"][n]["model"] for n in ladder]
-        self.assertEqual(models, ["opus", "claude-fable-5-2"])
+        self.assertEqual(models, ["opus", "opus"])
 
-    def test_plan_review_runs_on_the_judge_and_the_revised_plan_on_fable(self):
+    def test_selector_runs_on_haiku_and_final_gate_on_opus(self):
+        for env, deny in (("work", DENY), ("private", ())):
+            provider = generated(env, deny)["provider"]
+            profiles, targets = provider["profiles"], provider["targets"]
+            selector = targets["internal_agents"]["selector"]["profile"]
+            self.assertEqual(profiles[selector]["model"], "haiku", env)
+            # The final gate is routed by its persona, not by step name: when
+            # adjudication is skipped it is the only judge-model check left.
+            self.assertNotIn("final-gate", targets["steps"], env)
+            self.assertNotIn("final-gate-direct", targets["steps"], env)
+            supervisor = targets["personas"]["supervisor"]["profile"]
+            self.assertEqual(profiles[supervisor]["model"], "opus", env)
+            # The review that found real problems stays on the judgment model.
+            arch = targets["steps"]["architecture-review"]["profile"]
+            self.assertEqual(profiles[arch]["model"], "opus", env)
+
+    def test_no_profile_uses_fable(self):
+        # Fable is kept out of TAKT workflows: top-model judgment happens when
+        # the job is written, before TAKT runs.
+        for env, deny in (("work", DENY), ("private", ())):
+            profiles = generated(env, deny)["provider"]["profiles"]
+            for name, spec in profiles.items():
+                self.assertNotIn("fable", spec["model"], f"{env}: {name}")
+
+    def test_plan_review_and_the_revised_plan_run_on_opus(self):
         for env, deny in (("work", DENY), ("private", ())):
             provider = generated(env, deny)["provider"]
             steps = provider["targets"]["steps"]
             model = lambda step: provider["profiles"][steps[step]["profile"]]["model"]
             self.assertEqual(model("plan-review"), "opus", env)
             self.assertEqual(model("plan-review-2"), "opus", env)
-            self.assertEqual(model("plan-revise"), "claude-fable-5-2", env)
+            self.assertEqual(model("plan-revise"), "opus", env)
 
 
 class PrivateEnvironment(unittest.TestCase):
@@ -108,6 +132,23 @@ class PrivateEnvironment(unittest.TestCase):
             self.assertEqual(work_is_codex, private_is_opencode, key)
             # Same role table: only the assignment suffix differs.
             self.assertEqual(strip_assignment(entry, "credit-out"), work_targets[key], key)
+
+    def test_go_out_gives_the_codex_roles_of_work_to_the_same_codex_models(self):
+        work = generated("work", DENY)["provider"]
+        private = generated("private")["provider"]
+        go_out = private["assignments"]["go-out"]
+        overridden = {n.split("@")[0] for n in private["profiles"] if n.endswith("@go-out")}
+        work_codex = {n for n, p in work["profiles"].items() if p["provider"] == "codex"}
+        self.assertEqual(overridden, work_codex)
+        for role in work_codex:
+            self.assertEqual(private["profiles"][f"{role}@go-out"], work["profiles"][role], role)
+        default = go_out["defaults"]["profile"]
+        self.assertEqual(private["profiles"][default]["provider"], "claude-sdk")
+        used = set()
+        for kind in go_out["targets"].values():
+            for entry in kind.values():
+                used.update(entry.get("ladder", [entry.get("profile")]))
+        self.assertNotIn("opencode", {private["profiles"][n]["provider"] for n in used})
 
     def test_credit_out_keeps_defaults_on_claude(self):
         private = generated("private")["provider"]
@@ -149,6 +190,11 @@ class Errors(unittest.TestCase):
         with self.assertRaisesRegex(build_runtime.BuildError, "roles not defined: judge"):
             build_runtime.build("work", DENY, self.root)
 
+    def test_internal_agent_with_a_ladder_fails(self):
+        self.edit("common/targets.yaml", lambda d: d["internal_agents"].update(selector={"ladder": ["router", "worker"]}))
+        with self.assertRaisesRegex(build_runtime.BuildError, "takes a role name"):
+            build_runtime.build("work", DENY, self.root)
+
     def test_assignment_overriding_an_unknown_role_fails(self):
         self.edit("private/profiles.yaml", lambda d: d["assignments"]["credit-out"].update(nobody={"provider": "opencode", "model": "m"}))
         with self.assertRaisesRegex(build_runtime.BuildError, "unknown roles: nobody"):
@@ -183,6 +229,7 @@ class AcceptedByTakt(unittest.TestCase):
         out = self.check("private", [])
         self.assertIn("ok default", out)
         self.assertIn("ok credit-out", out)
+        self.assertIn("ok go-out", out)
 
 
 if __name__ == "__main__":
